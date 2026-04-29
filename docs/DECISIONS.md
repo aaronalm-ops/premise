@@ -1,0 +1,531 @@
+# Decision Log — Every Choice, In Plain Language
+
+> **How to read this doc.** Every meaningful choice we make on this project gets logged here in PM-friendly language. Each entry has: what we decided, a story or analogy you can hold in your head, what we *didn't* pick and why, the product-management lesson, and what would actually break if we got it wrong.
+>
+> Industry calls this an "ADR" — Architecture Decision Record. ADRs are how serious engineering teams remember why they made the choices they did, six months later when someone asks "wait, why do we use Supabase again?" You'll see them at every senior PM job. Now you've started one.
+>
+> This doc grows over time. Every new decision gets a numbered entry below.
+
+---
+
+## D-001 — We're using Anthropic Claude as our LLM (not OpenAI, not Gemini, not Llama)
+
+### The story
+
+Imagine you're commissioning a fieldwork agency to run a sensitive client study. Three agencies pitch:
+
+- **Agency O** is the most famous, has done the most jobs, and is genuinely versatile. Their default style is "be helpful, fill in gaps, give the client an answer." When pushed for a number they don't have, they'll often *estimate* and call it that — but a tired moderator might forget the disclaimer.
+- **Agency A** is newer and slightly smaller, but their training programme is famously strict about *not making things up*. When their moderators don't know something, the house style is "I can't verify that — let me come back to you." Slightly slower to give answers; almost never gives a wrong one.
+- **Agency G** is owned by the giant search company. Brilliant on multimedia briefs, still finding its identity on text-heavy work.
+- **The in-house option (L)** — you hire your own moderators (Llama, open-source). Total control, no fees per interview, but you have to staff and house them yourself.
+
+Your client just told you "if a single fabricated stat shows up in the deck, you're fired." Which agency do you pick?
+
+We picked **Agency A** — Anthropic's Claude.
+
+### What we picked, what we didn't, and why
+
+| Option | Verdict | Reason |
+|---|---|---|
+| **Anthropic Claude** | Picked | Best-in-class behaviour around abstaining ("I don't know") rather than fabricating. Leadership-stated commitment to harmlessness/honesty bleeds into the model's defaults. Their structured-output and prompt-caching APIs are excellent. |
+| OpenAI GPT-4/5 | Rejected (for this product) | More creative, often more verbose; more willing to "fill the silence." Fine for many products; wrong for ours. |
+| Google Gemini | Rejected | Strong, especially multimodal, but Anthropic's edge on cautious reasoning fits our strict-mode requirement better. |
+| Llama / open-source | Rejected | Self-hosting a 70B-class model means buying a $3K+ GPU or paying for cloud GPU hours. Blows our $5/mo budget instantly. Also: meaningfully weaker on nuanced research synthesis than the frontier closed models. |
+
+### The PM lesson
+
+**Model choice is the most consequential product decision in any AI product.** Models have *personalities* — defaults that show up across thousands of small moments. Picking a model whose personality matches your product's promise is way more powerful than trying to *prompt around* a mismatched personality.
+
+Our product promises "no fabrication." Claude defaults toward caution. That alignment compounds — every prompt is easier to write, every guardrail does less heavy lifting.
+
+### What would break if we got it wrong
+
+Pick OpenAI: your bot occasionally invents a stat that *sounds* like it came from the corpus. Your verifier catches most of them but not all. Six months in, a client spots a hallucinated number in a deck. Trust gone. Product dead.
+
+---
+
+## D-002 — Haiku 4.5 is our default; Sonnet 4.6 is the "senior" we escalate to
+
+### The story
+
+Think about how a research agency staffs a project. You have a junior analyst, a research director, and a global head of research. They all "do research," but their cost per hour is wildly different.
+
+You don't put the global head on coding open-ends. You don't put the junior on the final client narrative. The smart agency *routes the work*: junior does intake, cleaning, tabbing; director does synthesis, hypothesis framing, final story; global head only when something genuinely demands their judgment.
+
+Claude has the same shape. There are three siblings:
+
+- **Haiku 4.5** — junior analyst. Fast, cheap (roughly 15× cheaper than Sonnet). Surprisingly capable for narrow, well-scoped tasks.
+- **Sonnet 4.6** — research director. Smart enough for synthesis, narrative, nuanced judgment. Costs more.
+- **Opus 4.7** — global head. Most capable; also most expensive (~5× Sonnet). Reserved for the hardest reasoning.
+
+We default to Haiku and escalate to Sonnet only when the task genuinely needs synthesis. We almost never use Opus.
+
+### Concrete examples in our bot
+
+| Task | Model | Why |
+|---|---|---|
+| Looking at a chunk of retrieved text and asking "is this relevant to the question?" | Haiku | Narrow yes/no judgment. Junior work. |
+| Generating 5–7 hypotheses from a brief | Sonnet | Genuinely creative synthesis. Director work. |
+| Coding themes in a single transcript | Haiku | Pattern extraction. Junior work, repeated. |
+| Synthesising themes *across* 12 transcripts into a narrative | Sonnet | Director work. |
+| Drafting a story angle for a CMO audience | Sonnet | Narrative judgment about audience. Director work. |
+| Verifying "does claim X actually appear in chunk Y?" | Haiku | Fact-check. Junior work. |
+
+### The PM lesson
+
+**Cost is a product decision.** The instinct is to use the smartest model everywhere because "smarter = better." But every time you reach for Sonnet on a task Haiku can do, you're spending 15× more for output the user can't tell apart. Multiply across thousands of calls and you've burned the budget.
+
+Routing is one of the most underrated AI PM levers. Get it right and the same product costs you 5× less to run.
+
+### What would break if we got it wrong
+
+Sonnet-everywhere: budget blown by week 2. We'd be forced to either eat the cost (broken portfolio promise) or strip features (broken product). Haiku-everywhere: synthesis steps feel shallow; hypotheses are obvious; story angles are generic. Worst-of-both.
+
+---
+
+## D-003 — We're using Anthropic's "prompt caching" aggressively
+
+### The story
+
+You run a brand tracker for a CPG client. The questionnaire is 80 questions long, and 70 of those questions stay identical wave after wave (it's a tracker — that's the point). The remaining 10 questions change.
+
+Imagine you had to *retype the whole 80-question questionnaire from scratch every wave*. That's what a normal LLM call does — every time you call the model, you pay to send the entire system prompt + context, even if 90% of it is identical to the call you made 30 seconds ago.
+
+Anthropic's prompt caching is the equivalent of saying "use my master questionnaire as the base, here's just the 10 new questions." They keep the base hot for 5 minutes (or up to an hour with extended caching), and you pay roughly **10% of normal price** for the cached portion.
+
+### Concrete examples in our bot
+
+- The bot's system prompt (which spells out "be strict, abstain when uncertain, output JSON in this shape...") is ~2,000 tokens and identical across every call. **Cached.**
+- The persona library (a few hundred archetype descriptions we pull from) is ~5,000 tokens and changes weekly at most. **Cached.**
+- The retrieved chunks for a specific user question are *not* cached — they're unique per question.
+
+In numbers: a typical call might be 20K input tokens, of which 18K is repeated boilerplate. Without caching, we pay full freight on 20K. With caching, we pay full price on 2K and 10% on 18K. Roughly **a 9x cost reduction on input.**
+
+### The PM lesson
+
+**Costs in AI products are dominated by repeated context, not unique user content.** When you're scoping cost in an AI product, the question to ask is "what stays the same across calls, and how do I cache it?" before "how many calls are we making?"
+
+This is the same instinct as a researcher reusing question banks across studies, except it's automated and free if you architect for it.
+
+### What would break if we got it wrong
+
+Skip caching: same product, ~9× the API bill. Our $5 budget becomes $45. Still cheap in absolute terms, but our "I built this for $5/month" story disappears, which matters for the portfolio.
+
+---
+
+## D-004 — RAG (Retrieval-Augmented Generation) is the heart of the product
+
+### The story
+
+There's a classic researcher complaint about generic AI tools: *"It doesn't know my last 100 client studies. It just gives me ChatGPT-flavoured platitudes."*
+
+That's because base LLMs only know what was in their training data — generic web stuff, books, articles, frozen at some date. They've never seen your specific client work.
+
+**Retrieval-Augmented Generation (RAG)** is the solution. The name is technical but the idea is simple: before the bot answers your question, it goes and *looks up* the relevant pages from your library, reads them, and then answers grounded in what it just read.
+
+The library card analogy: imagine giving a brilliant generalist a library card to your private archive. Before they answer any question, they walk to the right shelf, pull the relevant books, and only answer based on what those books say. If the books don't address it, they tell you.
+
+### How RAG actually works in our bot (step by step)
+
+You ask: "What did our last three sustainability studies find about Gen-Z purchase intent?"
+
+1. **Translate question into a "fingerprint."** Every paragraph in your library has been turned into a numerical fingerprint (an "embedding" — see D-005). We turn your question into a fingerprint too.
+2. **Find similar fingerprints.** Compare your question's fingerprint against every chunk in the library. Pull the top ~12 closest matches.
+3. **Re-rank with a junior analyst.** Send those 12 chunks to Haiku and ask: "which of these is *actually* relevant to the question?" Keep the top 5.
+4. **Draft an answer with citations.** Send the 5 chunks to Sonnet and say: "answer this question using *only* what's in these chunks. Cite each claim. If they don't address something, say so."
+5. **Verify each claim.** A second Haiku pass checks: "does this specific claim actually appear in the chunk it cites?" Drop any that fail.
+6. **Render with citation chips.** UI shows the answer with clickable citations that pop up the source paragraph.
+
+### The PM lesson
+
+**RAG is the moat for AI products in expert domains.** A brand-new ChatGPT user can ask the same questions you can — but they don't have *your* corpus. The corpus is the moat. The retrieval layer is what unlocks it.
+
+For an AI PM, this is the question to ask of every AI product idea: *what private knowledge does this product turn into a competitive advantage?* If the answer is "none, just smart prompting," you're building on sand.
+
+### What would break if we got it wrong
+
+No RAG: bot is ChatGPT with a fancy UI. No reason for a researcher to pay for it. Sloppy RAG (no re-ranker, no verification): bot cites the wrong paragraph occasionally, occasionally hallucinates with a citation that *looks* legitimate. Worse than no RAG, because it manufactures false confidence.
+
+---
+
+## D-005 — We're using "embeddings" from Voyage AI to power the retrieval
+
+### The story
+
+You manage 500 research debriefs across 8 years. Someone asks you: "find me everything about urban-millennial sustainability concerns from any sector." How do you find it?
+
+The naïve approach is keyword search: ctrl-F "urban millennial sustainability." This misses the debrief that called them "city-based 28-year-olds worried about waste" because the words don't match.
+
+Embeddings are the fix. An embedding is a *fingerprint of meaning* — a list of ~1,500 numbers that represents what a chunk of text is about, regardless of which exact words it used. Two chunks talking about the same thing get similar fingerprints, even if their words don't overlap.
+
+So when you ask the bot a question, we don't keyword-match. We compare the *meaning fingerprints* — and "urban millennial sustainability" matches "city-based 28-year-olds worried about waste" because they mean similar things.
+
+### Why Voyage specifically
+
+Different companies make different fingerprint-makers (called "embedding models"). They vary in:
+- **Quality** — how well their fingerprints capture meaning
+- **Cost** — they charge per million tokens embedded
+- **Specialisation** — some are better at general text, some at code, some at retrieval specifically
+
+**Voyage AI** is the company Anthropic explicitly recommends for retrieval. Their `voyage-3` model is best-in-class for retrieval tasks and very cheap (~$0.06 per million tokens — embedding 100 PDFs costs maybe $0.50 once).
+
+We considered OpenAI's `text-embedding-3-small`, which is also good and cheap. We picked Voyage because (a) staying in the Anthropic-recommended stack avoids weird edge cases; (b) Voyage benchmarks slightly higher on retrieval precision; (c) one less API key to manage.
+
+### The PM lesson
+
+**Embeddings are infrastructure — boring, cheap, foundational.** This is a place to use the recommended option and move on. The interesting product decisions are upstream (what to embed, how to chunk it) and downstream (how to retrieve, how to use what's retrieved). The fingerprint-maker itself is rarely your differentiator.
+
+Conserve your decision-budget for the things that matter.
+
+### What would break if we got it wrong
+
+Bad embedding model: retrieval brings back almost-relevant chunks. Bot answers from those chunks confidently. Researcher shrugs and goes back to manual search. Product fails for an invisible reason — the user never sees that the wrong chunks were retrieved.
+
+---
+
+## D-006 — Storing vectors in Postgres (with the `pgvector` extension), not a dedicated vector database
+
+### The story
+
+You're starting an agency and you need a place to store client files. Two options:
+
+- **Option 1**: Use the filing cabinets you already own. Add a label-maker. Done.
+- **Option 2**: Rent a separate purpose-built records-storage facility across town. It's faster to retrieve files (their racking system is brilliant). You now have two places to manage, two access systems, two invoices.
+
+For an agency of 5 people with 200 files, Option 1 obviously wins. For Citibank with 50 million files, Option 2 obviously wins. Most agencies are nowhere near Citibank.
+
+In our world:
+- **Option 1 = Postgres + pgvector.** Postgres is the world's most reliable database. `pgvector` is a free extension that teaches it to also store and search embedding-fingerprints. Same database holds your projects, documents, embeddings, hypotheses, conversations — everything in one place.
+- **Option 2 = Pinecone, Weaviate, Qdrant Cloud, etc.** Purpose-built vector databases. Faster at scale, more sophisticated indexing options, but they're a separate service with its own bill, dashboard, and failure modes.
+
+We picked Option 1.
+
+### Concrete numbers
+
+`pgvector` with HNSW indexing handles ~10,000 embeddings comfortably on a free Supabase tier. Your "100s of documents" turn into roughly 5,000–15,000 chunks (a chunk per paragraph, roughly). We're well inside that envelope.
+
+If we ever cross 100,000 chunks (you'd need ~5,000 documents — call it 4 years of heavy use), we revisit.
+
+### The PM lesson
+
+**Don't pay the operational cost of a specialised tool until you actually have the problem it solves.** Specialised tools are *better* on their narrow axis but worse on the "everything I have to remember to operate" axis. The right question isn't "what's the best vector DB?" — it's "do I have a vector DB problem yet?"
+
+This is a recurring pattern in AI products: people copy the architecture of a $1B company when they have 50 users. The architecture that *fits* your stage is usually 10× simpler than the one you read about in engineering blogs.
+
+### What would break if we got it wrong
+
+Pick Pinecone too early: you're managing two databases, syncing data between them, paying $70/month for a free-tier-eligible workload. Operational headaches. Budget blown. Product no different to the user.
+
+---
+
+## D-007 — Using Supabase as the database (not raw Postgres on a server we manage)
+
+### The story
+
+You're opening a new agency office. Two options:
+
+- **Lease a serviced office**: comes with internet, security, a receptionist, cleaning, IT support. Move-in day = you walk in with your laptop. Costs more per square foot. (This is Supabase.)
+- **Lease a bare warehouse**: empty shell. You buy the desks, install the internet, hire security, set up cleaning, build IT. Costs less per square foot in raw terms. Move-in day = three months from now. (This is "raw Postgres on a VM you manage.")
+
+For a 200-person company, the bare warehouse pays off — you have an IT team, the per-foot saving is real money. For a solo founder building their first product, the bare warehouse is six lost weeks.
+
+**Supabase** is "Postgres + everything you forgot you needed" — Postgres database, authentication (login, signup, password reset), file storage, instant API, dashboard, backups. All on a free tier that comfortably covers our portfolio phase. When we go commercial, the same Supabase scales with us — paid tiers, no migration.
+
+### What we get for free
+
+| Without Supabase | With Supabase |
+|---|---|
+| Set up Postgres on a VM | Sign up, get a database URL |
+| Build login/signup/password-reset | Use Supabase Auth, 5 lines of code |
+| Set up file uploads (PDFs, transcripts) | Use Supabase Storage, included |
+| Write API endpoints for every table | Auto-generated REST + realtime API |
+| Configure backups | On by default |
+
+### The PM lesson
+
+**"Build vs. buy" decisions cost more than they look.** The instinct of an engineer-PM is "we can build this in a weekend." Maybe — but you can't *maintain* it in a weekend. Picking a managed service for boring infrastructure (auth, storage, backups) is almost always right unless you're at a scale where the cost flips.
+
+The moment to revisit: when you're paying Supabase >$500/month, you might save by going bare-metal. Until then, never.
+
+### What would break if we got it wrong
+
+Run our own Postgres: spend two weeks on setup, two more on auth, never quite get backups right, dread every deploy. Half the roadmap pushes by a month. The product never ships.
+
+---
+
+## D-008 — Using Next.js for both frontend and backend (not separate Python backend + React frontend)
+
+### The story
+
+Imagine staffing a research team for a multi-language brief. Two options:
+
+- **Option A**: Hire one bilingual analyst who can run both the English and Spanish work directly.
+- **Option B**: Hire two specialists — one English-speaking analyst, one Spanish-speaking analyst — and a translator to coordinate them.
+
+Option B is what big agencies do, because they have hundreds of analysts and the specialisation pays off. Option A is what a solo consultant does because the coordination cost of two specialists eats the specialisation gain.
+
+In our world:
+- **Option A = Next.js** (TypeScript everywhere). One language for the UI you see in the browser AND the server-side logic that calls Claude, hits the database, runs the RAG pipeline.
+- **Option B = Python FastAPI backend + React frontend** (two languages). Python is genuinely better for some things (especially data analysis with pandas/scipy), but you're now maintaining two codebases, two deployments, two dependency systems.
+
+For a solo aspiring vibe coder, Option A wins decisively. The one place Python's data ecosystem actually matters (Phase 4 quant analysis: cross-tabs, sig tests) we'll handle by either calling a tiny Python service when we get there, or — more likely — letting Claude write Python that we execute in a sandbox via tool-use. Both options preserve the one-language-for-the-app-itself property.
+
+### Why not Streamlit (the obvious "easy" choice)?
+
+Streamlit is great for internal tools and demos. It's bad for what we're building because:
+
+1. **Canvas UI is hard.** Streamlit is a top-to-bottom scrolling layout. We need a chat-on-left, artefacts-on-right layout that updates live. Streamlit fights you on this.
+2. **It looks demo-y.** A portfolio piece for an AI PM role needs to look like a product, not a Jupyter notebook with buttons.
+3. **Hard to commercialise.** When you decide to charge for it, Streamlit becomes a wall.
+
+We pay a small upfront cost (Next.js has a steeper learning curve than Streamlit) for a much better destination.
+
+### The PM lesson
+
+**Match your stack to your maintainer, not to industry fashion.** Reading "everyone uses Python for AI" and reaching for Python is a trap when you're the only person who has to maintain it. The "best" stack is the one *you specifically* can ship and iterate on alone. Optimise for your reality.
+
+The corollary: hire-able stacks ≠ ship-able stacks. The set of "stacks I can hire 10 engineers for" is much larger than "stacks I can solo-ship in 12 weeks." Different problems.
+
+### What would break if we got it wrong
+
+Pick Python+React: every feature requires changes in two codebases, you spend more time on plumbing than on prompts, the project drifts. By month 3 you've shipped 30% of the roadmap. Pick Streamlit: ship fast at first, hit the canvas UI wall in week 4, throw it away and rewrite in Next.js. You've lost a month.
+
+---
+
+## D-009 — Calling the Anthropic SDK directly, NOT using LangChain (or any other "AI framework")
+
+### The story
+
+There are two ways to learn to cook.
+
+- **Pre-made meal kits** (like HelloFresh): everything's measured, every step is written, you cook dinner in 25 minutes. Great for getting started. But the recipe is fixed — you can't easily swap an ingredient, change the sear time, or adapt to a fussy guest.
+- **Cooking from scratch with a recipe**: takes 45 minutes the first time, faster every time after. You learn *why* each step matters and you can change anything.
+
+**LangChain** is a meal-kit. It wraps the LLM SDK in convenience layers — chains, agents, retrievers, memories — and gives you "make a chatbot in 20 lines." Great for prototypes.
+
+It's wrong for our product because:
+
+1. **Our differentiator is the prompt.** Our entire competitive advantage — strict abstention, citation enforcement, variant generation — lives inside the *exact wording* of our prompts. LangChain abstracts the prompt away and gives you "templates" you fill in. Every loophole we want to close is one LangChain has helpfully hidden behind an abstraction.
+2. **It changes constantly.** LangChain has rewritten its API multiple times. Code that worked six months ago doesn't compile today. The Anthropic SDK is small and stable.
+3. **It's slower and more expensive.** LangChain's default behaviours often add unnecessary calls, unnecessary tokens, extra abstractions that cost real money.
+
+We call the Anthropic SDK directly. Roughly 10 lines for a chat call, 30 lines for a RAG call. Every line is ours.
+
+### The PM lesson
+
+**Frameworks pay off when the abstractions match your problem and cost when they don't.** The trap is assuming "framework = best practice." For commodity problems (boilerplate auth, basic CRUD), frameworks save real time. For your *core differentiated logic*, frameworks cost you the ability to differentiate.
+
+The senior-PM question: *"Where in this product does the value live? Have I picked tools that let me control that surface, or tools that hide it?"*
+
+For us, value lives in the prompts and the RAG pipeline. We picked tools (raw SDK) that put us face-to-face with both.
+
+### What would break if we got it wrong
+
+LangChain everywhere: when we hit a hallucination bug in production, the fix is "edit a prompt buried 4 layers deep in a generic abstraction." Slow to debug, slow to iterate. Each LangChain version bump risks breaking us. Our $5 budget gets burned on framework overhead.
+
+---
+
+## D-010 — Strict abstention via *structured outputs + verification*, not via prompting alone
+
+### The story
+
+You commission a focus group debrief from a moderator. Two ways to ask for it:
+
+- **Free text**: "Tell me how the focus group went." You get a flowing narrative. The moderator naturally glosses over the messy bits, fills uncertainties with confident-sounding generalisations, and rounds quotes into something that *sounds* like what the respondent might've said.
+- **Structured form**:
+  - 3 strongest verbatim quotes (with respondent ID and timestamp)
+  - 3 weakest moments (verbatim)
+  - 1 unexpected finding
+  - Recommendation: yes / no / inconclusive
+
+The structured form forces honesty. The moderator can't gloss over a weak moment because the form has a slot for it. They can't paraphrase a quote into something better because the slot says "verbatim, with timestamp."
+
+**Then you run a second analyst against the moderator's debrief**: "Did this specific quote actually appear in the transcript at this timestamp?" If not, drop it.
+
+That's exactly what we do with the LLM.
+
+### How this works in our bot
+
+Every RAG response comes back not as free text but as JSON in this shape:
+
+```json
+{
+  "claims": [
+    {
+      "text": "Gen-Z respondents in Tier-2 cities ranked sustainability as their #3 purchase driver.",
+      "citation_ids": ["chunk_4f8a", "chunk_91bc"],
+      "confidence": "high"
+    }
+  ],
+  "unanswered_aspects": [
+    "Tier-3 cities are not represented in the corpus."
+  ]
+}
+```
+
+Then a second Claude call (Haiku, cheap) checks each claim: "does this claim actually appear in the cited chunks?" Unsupported claims are *dropped, not rewritten*. The UI then refuses to render any claim without a citation.
+
+Three layers, each cheap, each catching what the previous layer missed:
+
+1. **Schema** — the model can't even *output* a claim without a citation slot.
+2. **Verifier** — a second pass catches claims where the citation is wrong.
+3. **UI gate** — the renderer refuses to display anything that slipped through.
+
+### The PM lesson
+
+**Don't try to fix model behaviour with prompting alone if you can fix it structurally.** Prompts say "please don't hallucinate." Schemas *prevent* it. Verifiers *catch* it. UI gates *hide* what slipped through.
+
+This is one of the most important AI PM intuitions: when you want a behaviour to be a *guarantee*, not a *tendency*, look for structural enforcement. Prompting is a soft constraint; structure is a hard one.
+
+### What would break if we got it wrong
+
+Prompting only: bot is 95% honest. The 5% is the 5% that ends up in client decks. Discovery happens when a client googles a stat. Trust gone.
+
+---
+
+## D-011 — Building RAG first, before any other feature
+
+### The story
+
+Imagine you're inventing a new research methodology — say, a video-diary-driven longitudinal study. What do you build first?
+
+The wrong answer: "the report template." You'll polish the report template for weeks before you know whether the diary-collection method actually produces usable data. If diary collection turns out to be unreliable, the template is wasted work.
+
+The right answer: "the diary-collection method." Once you know it works, the rest builds on it. If it *doesn't* work, you find out early and pivot before investing in downstream stages.
+
+In our product, **the RAG pipeline is the diary-collection method.** It's the thing most likely to fail or surprise us. It's also the thing that makes everything else *better* once it works — hypothesis generation grounded in your prior research, persona suggestions informed by your past audiences, analysis cross-referenced with previous waves.
+
+So we build it first. Phase 0 is scaffolding; Phase 1 is "drop documents in, ask questions, get cited answers." Only then do we add hypothesis, questionnaire, analysis, story.
+
+### The PM lesson
+
+**Sequence by risk, not by user-flow order.** The instinct is to build features in the order the user encounters them: brief → hypothesis → questionnaire → analysis → story. That's the wrong sequence because it doesn't match the *risk* sequence. RAG is the highest-risk feature; it ships first. Story angles are the lowest-risk feature (it's just generation); it ships last.
+
+This is a recurring AI-PM pattern. AI products have one or two features that, if they don't work, kill the product. Identify those, build them first, prove they work, *then* build the polish.
+
+### What would break if we got it wrong
+
+Build hypothesis-generation first: it'll work fine (it's just generation). You'll feel productive. Then in week 8 you start RAG and discover that strict abstention is harder than you thought, retrieval precision is worse than you assumed, and the hypothesis feature is much weaker without good RAG. Now you're rebuilding hypothesis on top of RAG. Two months lost.
+
+---
+
+## D-012 — Scaffolding by hand instead of using `create-next-app`
+
+### The story
+
+Imagine learning to drive. Two ways:
+
+- **Option 1**: A friend drives you everywhere. You arrive at every destination perfectly, and you have no idea how the car works.
+- **Option 2**: A patient instructor sits next to you and walks you through the pedals, the mirrors, the gear stick. The first trip is slower; you learn what every control does.
+
+`create-next-app` is Option 1. It writes ~30 files for you with no explanation. Brilliant once you know what they all are; opaque when you don't.
+
+We did Option 2. I wrote each scaffold file by hand and you can see exactly what each one is for:
+
+| File | What it does |
+|---|---|
+| `package.json` | The shopping list of npm packages we depend on. Every line is a paid-for capability. |
+| `tsconfig.json` | TypeScript settings — how strict the compiler is, where to find code, which modern syntax to allow. |
+| `next.config.ts` | Next.js-specific config (we have one experimental flag on for typed routes). |
+| `postcss.config.mjs` | Tells the build pipeline how to process our CSS (mostly: run Tailwind v4). |
+| `.gitignore` | What git should not store (node_modules, secrets, build output). |
+| `.env.local.example` | The template for environment secrets. The real `.env.local` is git-ignored. |
+| `src/app/layout.tsx` | The HTML shell — every page renders inside this. |
+| `src/app/page.tsx` | The home route (`/`). |
+| `src/app/globals.css` | Global styles + Tailwind theme tokens. |
+| `src/app/api/health/route.ts` | A simple API endpoint we use to verify env-var wiring. |
+| `src/lib/...` | Reusable code modules (LLM client, DB client, env validator). |
+| `src/components/canvas/...` | UI components for the canvas layout. |
+
+### The PM lesson
+
+**For a learn-as-you-build project, generators rob you of the learning.** The 10-minute saving from `create-next-app` is bought with months of "I don't know what these files do." For commercial production work, generators are great. For learning, prefer the slower, more explicit path until the structure is in your bones.
+
+Once you've scaffolded a Next.js app by hand once, `create-next-app` becomes useful again — because now you'd be reading its output, not depending on it.
+
+### What would break if we got it wrong
+
+Use `create-next-app`: project starts faster, you get cargo-culted files you can't reason about, and when something breaks in the toolchain you don't know which file to look at.
+
+---
+
+## D-013 — `/api/health` was the first endpoint we built (before any feature)
+
+### The story
+
+You're commissioning a custom data-collection rig — sensors, modems, dashboards. The temptation is to start by building the dashboard, because that's the part that *looks like a product*.
+
+But every experienced field-ops lead does the opposite. They build a "dial tone" first: a tiny endpoint that just answers "yes I'm alive, here are my readings." It's not glamorous. It produces no client output. But the moment a sensor goes dark, you know whether the modem is the problem, the sensor is the problem, or your code is the problem.
+
+The same thinking gives us `/api/health`. It does nothing user-facing. It just answers: *"are all my keys plugged in?"*
+
+```json
+{
+  "ok": true,
+  "env": {
+    "allConfigured": true,
+    "vars": [
+      { "key": "ANTHROPIC_API_KEY", "configured": true },
+      { "key": "VOYAGE_API_KEY", "configured": true },
+      ...
+    ]
+  }
+}
+```
+
+The first time something stops working, you'll hit this endpoint and know in 2 seconds whether it's a config issue or a code issue.
+
+### The PM lesson
+
+**Build observability before features.** The instinct of a new builder is to build user-visible features first because they feel like progress. The instinct of an experienced builder is to make the system *legible* first — so when (not if) something goes wrong, you can see what.
+
+For an AI product specifically, observability is even more important: LLMs occasionally fail in invisible ways (wrong model picked, prompt cache miss, retrieval returning empty, rate-limited silently). The earlier you can see these things, the cheaper they are to fix.
+
+Health checks are the simplest possible observability. We'll add more (token-cost telemetry, retrieval-precision logging, eval scores) as we go.
+
+### What would break if we got it wrong
+
+Skip the health check: at some point in Phase 1 a Claude call fails and you spend 40 minutes debugging whether your API key is wrong, your env-var name is misspelled, or your prompt is malformed. With the health check, you'd have known in 5 seconds it was the env var.
+
+---
+
+## D-014 — The product is named "Premise"
+
+### The story
+
+A name does three jobs: it has to be memorable, it has to point at the value, and it has to give you the opening line of every pitch and demo. Most product names do one of those three. Great ones do all three.
+
+We picked **Premise** because:
+
+- **Every research project starts with one.** A premise is the seed-statement a researcher builds the whole study around. Naming the product after the very thing the researcher brings to it on day one makes the product feel like a natural extension of how they already think.
+- **It signals the principle.** The product widens the option space; it doesn't hand you a verdict. A "premise" is by definition provisional — it's an *opening assumption*, not a conclusion. That matches the "I propose, you dispose" core principle exactly.
+- **It survives growing into a real B2B product.** It pitches itself in a sentence: *"Every research project starts with a premise — meet ours."* You can put that on a homepage hero, on a deck slide, on a cold email opener. It works as a product name on day 1 and as a category position on day 1,000.
+
+### What we considered, what we didn't pick, and why
+
+We brainstormed across four personality vibes. The runners-up:
+
+- **Footnote** — the citation feature owns this name perfectly. Risk: too narrow; it puts all the weight on one feature (citations) when the product also generates hypotheses, questions, analyses, and stories. As the product grows, the name might shrink it.
+- **Sextant** — beautiful navigational metaphor, deep narrative. Risk: niche-cool but slightly inscrutable; harder to explain in 5 words at a party.
+- **Inkling** — friendly, hypothesis-shaped, humble. Risk: a touch cute for a B2B tool that researchers will put in front of their CMO clients.
+- **Marginalia** — researcher-coded and lovely. Risk: long, slightly precious, and very inside-baseball.
+
+Each of these is a perfectly defensible name. Premise won because it lands cleanly on all three jobs (memorable, says something, openable).
+
+### The PM lesson
+
+**Don't pick the most clever name; pick the most ownable position.** The temptation in naming is to optimise for distinctiveness ("nobody else has this name"). The better optimisation is for *positioning fit* — does the name point at the wedge you want to own in the user's mind?
+
+Premise points at hypothesis-forming, the *first* step of the research workflow. Owning the first step gives the product a natural place to live in the researcher's mental model — and gives every other capability (questionnaire, analysis, story) a place to expand from.
+
+### What would break if we got it wrong
+
+Pick a generic descriptive name (e.g. "InsightAI"): the product disappears into the noise of every other AI insights tool. Pick a too-cute name: hard to use seriously in B2B settings. Pick a too-narrow name: the brand caps the product's growth ceiling.
+
+---
+
+## How to use this doc going forward
+
+- **Every new decision gets a numbered entry below.** D-015, D-016, etc.
+- **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
+- **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.
