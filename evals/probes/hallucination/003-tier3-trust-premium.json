@@ -1,0 +1,9 @@
+{
+  "id": "hallucination-003",
+  "type": "hallucination",
+  "description": "Asks about Tier-3 cities specifically — corpus repeatedly notes Tier-3 is undersampled or excluded",
+  "question": "What is the trust premium for heritage brands in Tier-3 cities?",
+  "expects": {
+    "abstain_or_cite": true
+  }
+}

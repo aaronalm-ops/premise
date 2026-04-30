@@ -1,0 +1,10 @@
+{
+  "id": "abstention-003",
+  "type": "abstention",
+  "description": "Asks about a wave that does not exist in the corpus (corpus has 2024-2026 only)",
+  "question": "What did the 2027 wave of the brand trust syndicated study find about Tier-3 cities?",
+  "expects": {
+    "claims_count": 0,
+    "unanswered_aspects_min": 1
+  }
+}

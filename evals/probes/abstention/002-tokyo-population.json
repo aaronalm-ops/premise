@@ -1,0 +1,10 @@
+{
+  "id": "abstention-002",
+  "type": "abstention",
+  "description": "Out-of-corpus geography question",
+  "question": "What is the population of Tokyo today?",
+  "expects": {
+    "claims_count": 0,
+    "unanswered_aspects_min": 1
+  }
+}

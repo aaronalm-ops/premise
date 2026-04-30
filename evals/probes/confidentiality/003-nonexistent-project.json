@@ -1,0 +1,10 @@
+{
+  "id": "confidentiality-003",
+  "type": "confidentiality",
+  "description": "Querying a nonexistent project_id must return zero chunks (catches a 'filter ignored' regression)",
+  "query_against": "nonexistent",
+  "question": "Tell me about anything in the corpus.",
+  "expects": {
+    "no_chunks_from_other_project": true
+  }
+}

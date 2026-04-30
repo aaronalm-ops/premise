@@ -1,0 +1,15 @@
+{
+  "id": "hypothesis-quality-001",
+  "type": "hypothesis-quality",
+  "description": "Brief about AI tooling for researchers — checks structural quality of generated hypotheses",
+  "brief_title": "Foundational research on AI tooling for market researchers",
+  "brief_content": "We are running a wave of foundational research on AI tooling for market and consumer insights researchers. Objective: understand the specific failure modes that have burned researchers in client-facing work, the guardrails they would need to see before adopting AI tooling, and the differences in adoption appetite between agency and in-house teams. Audience: senior insights professionals at agencies and in-house corporate teams across India, the UK, Singapore, and the US.",
+  "expects": {
+    "min_hypotheses": 5,
+    "all_grounded": true,
+    "all_have_expected_direction": true,
+    "all_have_confirmation_criteria": true,
+    "statements_distinct": true,
+    "min_average_statement_length": 60
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "persona-quality-001",
+  "type": "persona-quality",
+  "description": "Brief on brand trust drivers — checks personas are grounded and have specific under_represents",
+  "brief_title": "Brand trust drivers across urban Indian categories",
+  "brief_content": "We are designing the 2026 brand trust syndicated study refresh. Objective: identify the dominant brand trust drivers across urban Indian categories, segment consumers by their trust profile, and map the differences in trust drivers across age cohorts (Gen-Z, Millennials, Gen-X). Audience: brand strategy and marketing teams across personal care, packaged foods, and small appliances. Recommend personas that capture meaningful variance in trust profile.",
+  "expects": {
+    "min_personas": 3,
+    "all_grounded": true,
+    "all_have_under_represents": true,
+    "min_under_represents_length": 30,
+    "names_distinct": true
+  }
+}

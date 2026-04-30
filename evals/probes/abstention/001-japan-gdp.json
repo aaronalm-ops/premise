@@ -1,0 +1,10 @@
+{
+  "id": "abstention-001",
+  "type": "abstention",
+  "description": "Out-of-corpus question about Japanese economy",
+  "question": "What was the GDP of Japan in 1995?",
+  "expects": {
+    "claims_count": 0,
+    "unanswered_aspects_min": 1
+  }
+}

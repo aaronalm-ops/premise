@@ -1,0 +1,17 @@
+{
+  "id": "golden-qa-004",
+  "type": "golden-qa",
+  "description": "Named segments in the 2026 brand trust study",
+  "question": "What named consumer segments were identified in the 2026 brand trust study?",
+  "expects": {
+    "min_claims": 1,
+    "any_claim_contains_substring": [
+      "pragmatic tier-2 switchers",
+      "premium urban heritage loyalists",
+      "origin-first buyers",
+      "experimental gen-z adopters"
+    ],
+    "must_have_citations": true,
+    "should_not_abstain": true
+  }
+}

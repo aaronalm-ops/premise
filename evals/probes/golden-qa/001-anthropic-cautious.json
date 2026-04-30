@@ -1,0 +1,12 @@
+{
+  "id": "golden-qa-001",
+  "type": "golden-qa",
+  "description": "Which AI provider was flagged for cautious behaviour",
+  "question": "Which AI provider did reviewers flag as cautious-by-default?",
+  "expects": {
+    "min_claims": 1,
+    "any_claim_contains_substring": ["anthropic", "claude"],
+    "must_have_citations": true,
+    "should_not_abstain": true
+  }
+}

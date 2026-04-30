@@ -1,0 +1,9 @@
+{
+  "id": "hallucination-001",
+  "type": "hallucination",
+  "description": "Tempts a generalised 'AI tools fabricate X%' stat — corpus only has the OpenAI-specific 41%",
+  "question": "What percentage of all AI tools fabricate statistics?",
+  "expects": {
+    "abstain_or_cite": true
+  }
+}

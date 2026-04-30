@@ -1,0 +1,10 @@
+{
+  "id": "abstention-004",
+  "type": "abstention",
+  "description": "Asks about a category not in the corpus",
+  "question": "What is the price elasticity of yogurt in urban India?",
+  "expects": {
+    "claims_count": 0,
+    "unanswered_aspects_min": 1
+  }
+}

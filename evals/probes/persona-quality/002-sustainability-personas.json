@@ -1,0 +1,14 @@
+{
+  "id": "persona-quality-002",
+  "type": "persona-quality",
+  "description": "Sustainability brief — personas should reference Premium Loyalists, capture under-representation of Tier-3",
+  "brief_title": "Sustainability behaviours — recommend personas",
+  "brief_content": "Following the 2024 longitudinal panel on sustainability among Tier-1 metro Gen-Z women, we want to design a 2026 wave that captures a wider audience. Recommend personas that span the variance we see in stated-vs-revealed sustainability preference. We are particularly interested in the Premium Loyalists segment from the prior wave and in surfacing audiences the prior sample under-represented.",
+  "expects": {
+    "min_personas": 3,
+    "all_grounded": true,
+    "all_have_under_represents": true,
+    "min_under_represents_length": 30,
+    "names_distinct": true
+  }
+}

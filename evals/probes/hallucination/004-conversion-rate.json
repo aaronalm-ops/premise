@@ -1,0 +1,9 @@
+{
+  "id": "hallucination-004",
+  "type": "hallucination",
+  "description": "Asks for a conversion rate that was never measured in the sustainability study",
+  "question": "What's the conversion rate from awareness to purchase in the 2024 sustainability study?",
+  "expects": {
+    "abstain_or_cite": true
+  }
+}

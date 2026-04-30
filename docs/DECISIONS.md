@@ -632,8 +632,135 @@ Skip RLS now: in Phase 4 we add a "show recent projects" widget that queries Sup
 
 ---
 
+## D-018 — Hypothesis generation rides the same structured-output chassis as RAG
+
+### The story
+
+Imagine you've engineered the perfect verbatim-quoting protocol for your moderators — every quote in a debrief must be tagged with the speaker, the timestamp, and an audio-clip reference. Your second analyst checks every quote against the recording. The protocol works beautifully for focus-group debriefs.
+
+Then you start running diary studies. Different format, different data, different output. Do you invent a fresh protocol for diaries? Or do you ask: *can my quoting protocol carry over?*
+
+It can. Diaries have entries, dates, and respondent IDs. The same shape. You reuse the protocol, change two field names, ship the diary product in a week instead of a quarter.
+
+We just did that with hypotheses.
+
+### What we did
+
+The strict-mode RAG pipeline (D-010) is built on three layers — schema-forced tool_use → verifier pass → UI gate. For Phase 2, we needed to generate hypotheses from a brief. Different shape (5–7 falsifiable statements with assumptions, expected direction, confirmation criteria), different goal (widen options, not answer questions). But the same underlying *primitive*: every output must cite chunks, no fabrication.
+
+So hypothesis generation reuses the chassis:
+- **Same retrieval**: top-k from pgvector, scoped to the project (D-016).
+- **Same reranker**: Haiku prunes to the most relevant chunks (D-002 routing in action).
+- **Same forced tool_use**: Sonnet must call `propose_hypotheses` with a strict schema. The schema requires every hypothesis to populate `supporting_chunk_ids` OR `contradicting_chunk_ids`. The model literally cannot output a hypothesis without grounding.
+- **Same post-validation**: app code filters out any hypothesis whose citation IDs don't match the retrieved chunks — same defensive belt-and-braces approach as in RAG generation.
+
+What's *different* is downstream: hypotheses are persisted, ranked, and gated by researcher accept/reject status — they become inputs to the next phase.
+
+### The PM lesson
+
+**When you find a primitive that works, look for places to reuse it.** The instinct of a less-experienced builder is to build each feature from scratch ("hypotheses are different, I'll write a new pipeline"). The instinct of a senior PM is to recognise the *shape* of the problem and reach for the proven primitive ("this is the same shape as RAG — let's build it the same way").
+
+This is how AI products compound: a single load-bearing primitive — *structured output with citation discipline* — becomes the chassis for hypotheses, then questionnaire variants (Phase 3), then analysis writeups (Phase 4), then story angles (Phase 5). One design idea, five products. The compounding is what makes the long roadmap actually shippable.
+
+The general AI-PM lesson: **primitives are the unit of leverage**. Identify them, name them, reuse them aggressively. The product gets faster to build and more coherent to use because every surface speaks the same structural language.
+
+### What would break if we got it wrong
+
+Build hypothesis generation as a fresh pipeline: it works, but you've doubled the surface area. Every prompt-engineering insight has to be re-applied in two places. The verifier pattern doesn't carry. The citation-chip UI from RAG doesn't render hypothesis citations because the data shape is subtly different. Each later phase compounds the divergence. By Phase 5 you have five mostly-similar pipelines and no shared primitives — and the codebase has stopped feeling like one product.
+
+---
+
+## D-019 — Three variants per question, with their tradeoffs displayed alongside
+
+### The story
+
+You're a senior researcher running a study on sustainability. Junior moderator says "we need a question on how important sustainability is to consumers." You ask: "phrased how?" They write:
+
+> *On a scale of 1-7, how important is sustainability to you when shopping for groceries?*
+
+You wince. You know exactly what's about to happen — the average will come back at 6.2 and the client will think every consumer is a sustainability champion. The phrasing is direct, neutral, *and* almost guaranteed to surface social-desirability bias on a topic where it's been demonstrated thousands of times.
+
+You'd ask it differently. Maybe a behavioural variant: *"In the last four shopping trips, how often did you choose a sustainable product over a cheaper alternative?"* Maybe a forced-choice: *"Which would you take to checkout — Brand A at ₹100 with sustainable packaging, or Brand B at ₹85 with regular packaging?"* Maybe projective: *"Describe a person who consistently buys sustainable products. What is their household income?"*
+
+Different phrasings of the same construct elicit *different things*. A senior researcher's instinct knows this. A junior researcher learns it the hard way over years.
+
+### What we did
+
+Premise codifies this instinct. Every question Phase 3 generates comes with **exactly 3 variants from different methodological frames** — neutral_direct, leading, projective, behavioural, attitudinal, forced_choice, constant_sum, maxdiff. For each variant, the bot supplies:
+
+- **statement** — the actual question, ready to paste into a survey tool
+- **what_it_elicits** — one sentence on what THIS phrasing surfaces
+- **caveat** — one sentence on the bias or weakness it carries
+
+The UI displays the three variants side-by-side as cards. The researcher reads the elicits/caveat lines, picks based on instinct, clicks "select." The bot never picks — it only widens.
+
+### The PM lesson
+
+**The "options not answers" principle isn't a UX nicety; it's a *trust mechanism*.** A bot that picks for an expert user is a bot that gets tuned out the moment it's wrong about something subtle. A bot that surfaces the tradeoff and lets the expert pick is a bot the expert keeps in the workflow even when they disagree with the recommendation.
+
+This is the harder version of D-018's primitive — it's not just "structured output." It's *structured output that reveals the tradeoff to the user*. The schema isn't only forcing the model to disclose its reasoning; it's forcing the *interface* to show the tradeoff to the human.
+
+For an AI PM, the broader lesson: **for expert users, don't ship a bot that thinks for them. Ship a bot that thinks *alongside* them.** The product wins because the expert keeps the bot in their loop, not because the bot is right.
+
+### What would break if we got it wrong
+
+Single-variant generation: the bot picks one phrasing per question. Sometimes it picks the right one. Often it picks neutral_direct because that's the safest-looking. The researcher silently overrides and rewrites the question. The bot's value diminishes to "draft something, I'll redo it." Eventually the researcher stops using it for questionnaire work and reaches for a blank doc instead.
+
+Multi-variant generation without showing tradeoffs: the bot dumps three phrasings without explaining what each elicits. The researcher reads three near-identical questions and shrugs. The widening doesn't help because the *axis* of variation isn't visible.
+
+Multi-variant + tradeoffs but bot picks: defeats the entire principle. The researcher is now arguing with the bot's pick rather than choosing on their own instinct.
+
+The version we shipped: variants + elicits/caveat per variant + researcher selects. That is the load-bearing combination.
+
+---
+
+## D-020 — A six-probe-type eval harness, gating every prompt change
+
+### The story
+
+You're a researcher. Your moderator's panel guide has been changing every week — your QA lead keeps tweaking probes "for clarity." You only realise something's degraded when a client points it out: the recent waves are missing a question that used to be asked. By the time you trace it, three waves of data are tainted.
+
+What did you wish you'd had? A **golden checklist** the moderator runs through *every wave* before fielding. Not exhaustive — just the things that, if they break, kill the study. Five minutes per wave; saves three months of reanalysis.
+
+That's an eval harness for a research product.
+
+### What we built
+
+Six probe types, 20 deterministic test cases, one CLI runner, one JSON output. Every prompt change runs against this before merging. Every commit can be gated by `npm run eval` exit code.
+
+| Probe type | What it catches | Severity if it fails |
+|---|---|---|
+| `golden-qa` | Bot fails to answer questions the corpus *can* answer | Trust failure |
+| `abstention` | Bot fabricates on out-of-corpus questions | Critical — the strict-mode product is broken |
+| `hallucination` | Bot generates uncited claims when tempted | Critical |
+| `hypothesis-quality` | Hypotheses missing required structural fields | Schema-enforcement leak |
+| `persona-quality` | `under_represents` field missing or trivially short | Highest-touted persona feature is hollow |
+| `confidentiality` | Cross-project chunk leakage | D-016 breach — product-defining trust commitment |
+
+The harness has its own dedicated test corpus (3 public + 1 confidential markdown fixtures) and its own pair of dedicated test projects, set up idempotently on first run.
+
+### What this harness does NOT do (yet)
+
+It's deliberately deterministic-only at v1. No subjective scoring, no judge-based rubrics. The structural checks catch ~80% of regression failure modes; the subjective stuff — *"is this hypothesis specific enough to be worth running a study around?"* — is a v2 add. The reasoning: a flaky judge is worse than no judge. Better to ship deterministic now and add the judge once we've curated good rubric prompts.
+
+### The PM lesson
+
+**Evals are the AI product equivalent of the panel-guide checklist.** Without them, every prompt change is a silent risk. With them, you accumulate trust over time: every passing run is one more proof point, every failure is caught at the cheapest possible moment.
+
+For an AI PM specifically: **evals are the highest-leverage portfolio artefact you'll build.** They demonstrate that you've internalised a fundamental insight — non-deterministic systems require *measurement* in lieu of certainty. Hiring managers screen for this. So do CTOs evaluating AI product teams.
+
+The deeper lesson: **evals are the receipt for every promise the product makes.** Strict abstention? Eval probe. SQL-bounded confidentiality? Eval probe. Citation discipline? Eval probe. Every load-bearing claim from D-001 through D-019 has at least one corresponding probe — or it should, before we ship to a paying customer.
+
+### What would break if we got it wrong
+
+No eval harness: every prompt edit is a coin-flip. Three months in, abstention rate has silently degraded from 100% to 90%, hypothesis specificity is mediocre because the prompt got softened during a tuning session, and a confidentiality regression introduced by a bad migration goes undetected for weeks. By the time someone notices, the trust narrative the product was built around is dead.
+
+Eval harness with no probes for the load-bearing commitments: passing eval feels like progress, but you're testing the wrong thing. Always check: does every "Critical" claim in the product narrative have a corresponding probe? If not, add it.
+
+---
+
 ## How to use this doc going forward
 
-- **Every new decision gets a numbered entry below.** D-018, D-019, etc.
+- **Every new decision gets a numbered entry below.** D-021, D-022, etc.
 - **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
 - **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.

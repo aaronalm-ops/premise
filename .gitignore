@@ -43,3 +43,7 @@ next-env.d.ts
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# evals
+/evals/.config.json
+/evals/results/

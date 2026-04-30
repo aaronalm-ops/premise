@@ -1,0 +1,12 @@
+{
+  "id": "golden-qa-005",
+  "type": "golden-qa",
+  "description": "Attitude-behaviour gap in sustainability study",
+  "question": "What was the gap between stated and revealed preference on sustainability in the 2024 women's panel?",
+  "expects": {
+    "min_claims": 1,
+    "any_claim_contains_substring": ["6.2", "23%", "23 percent", "attitude-behaviour"],
+    "must_have_citations": true,
+    "should_not_abstain": true
+  }
+}

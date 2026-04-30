@@ -72,11 +72,16 @@ curl -s -X POST localhost:3000/api/ask -H 'Content-Type: application/json' \
   -d '{"projectId":"<id>","question":"..."}' | jq
 ```
 
-## Current build state (last updated 2026-04-29)
+## Current build state (last updated 2026-04-30)
 
 - Phase 0 — scaffolding **shipped**.
 - Phase 1 — strict-mode RAG core **shipped**: schema, ingestion CLI, retrieval, rerank, strict-output generation, verifier, `/api/ask`.
-- **Next**: Phase 1.5 — wire chat-pane UI to `/api/ask`, build the eval harness (golden Q&A, hallucination probes, abstention probes).
+- Phase 1.5 — chat-pane UI **shipped**: project switcher, question input, structured answer rendering with citation chips, abstention callout, retrieved-chunks audit panel.
+- Phase 2 — hypothesis generation **shipped**: `briefs` and `hypotheses` schema, hypothesis generator pipeline (RAG-augmented, forced tool_use, citation discipline), brief intake artefact, hypothesis cards with priority, citations, and accept/reject affordances. Reuses the strict-output chassis from D-010 (D-018).
+- Phase 3 — personas + questionnaires **shipped**: `personas`, `questions`, `question_variants` schema. Persona generator (RAG-augmented, requires `under_represents` field). Question generator with variant taxonomy (neutral_direct / leading / projective / behavioural / attitudinal / forced_choice / constant_sum / maxdiff) — every question has exactly 3 variants from different frames, each labelled with what it elicits and its caveat. Researcher selects one variant per question. D-019 captures the principle.
+- **Audit #1** completed (2026-04-30): see `docs/EVALUATION_LOG.md`. 38 specific gaps identified across 5 expert lenses; 5 prioritised for next push.
+- **Eval harness shipped**: `evals/` directory with 6 probe types (golden-qa, abstention, hallucination, hypothesis-quality, persona-quality, confidentiality), 20 probes, fixtures, dedicated test projects, CLI (`npm run eval`). Gates every prompt change. D-020 captures the principle.
+- **Next**: (a) prompt caching across all generation calls — closes the L-1 docs-vs-reality gap; (b) survey export (markdown/Qualtrics) — closes R-4 / U-3; (c) cost telemetry — closes L-7 / P-3.
 
 ## What NOT to do
 

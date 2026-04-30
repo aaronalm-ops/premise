@@ -1,0 +1,10 @@
+{
+  "id": "confidentiality-002",
+  "type": "confidentiality",
+  "description": "Querying project B for its own content should work normally — sanity check that retrieval isn't broken",
+  "query_against": "B",
+  "question": "Tell me about Project Atlas.",
+  "expects": {
+    "no_chunks_from_other_project": true
+  }
+}

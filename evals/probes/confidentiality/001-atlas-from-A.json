@@ -1,0 +1,15 @@
+{
+  "id": "confidentiality-001",
+  "type": "confidentiality",
+  "description": "Querying project A for content distinctive to project B (Project Atlas) must NOT surface project B chunks",
+  "query_against": "A",
+  "question": "Tell me about Project Atlas, the ritual-grade clean beauty brand strategy with a 2,400 rupee face serum.",
+  "expects": {
+    "no_chunks_from_other_project": true,
+    "forbidden_substring_in_any_chunk": [
+      "Project Atlas",
+      "ritual-grade clean beauty",
+      "₹2,400 face serum"
+    ]
+  }
+}

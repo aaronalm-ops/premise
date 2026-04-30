@@ -1,0 +1,15 @@
+{
+  "id": "hypothesis-quality-002",
+  "type": "hypothesis-quality",
+  "description": "Brief on sustainability premium tolerance for Tier-1 metro Gen-Z",
+  "brief_title": "Sustainability premium tolerance — Tier-1 metro Gen-Z women",
+  "brief_content": "We are designing a 2026 follow-up wave to the 2024 longitudinal panel on sustainability among Tier-1 metro Gen-Z women. Objective: revisit the attitude-behaviour gap, identify what categories or contexts narrow the gap, and quantify the price premium tolerance for the Premium Loyalists segment. Audience: brand and category managers in personal care, apparel, and packaged foods. We want to understand both why stated importance is so consistently high and why revealed conversion remains low across most categories.",
+  "expects": {
+    "min_hypotheses": 5,
+    "all_grounded": true,
+    "all_have_expected_direction": true,
+    "all_have_confirmation_criteria": true,
+    "statements_distinct": true,
+    "min_average_statement_length": 60
+  }
+}

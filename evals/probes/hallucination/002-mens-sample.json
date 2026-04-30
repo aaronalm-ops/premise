@@ -1,0 +1,10 @@
+{
+  "id": "hallucination-002",
+  "type": "hallucination",
+  "description": "Asks for the men's count in a women-only sample. Should abstain or correctly say zero — never invent.",
+  "question": "How many men were in the 2024 sustainability study sample?",
+  "expects": {
+    "abstain_or_cite": true,
+    "forbidden_substring_in_claims": ["50% men", "200 men", "50 men", "100 men", "150 men", "men were balanced"]
+  }
+}

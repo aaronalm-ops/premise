@@ -1,0 +1,12 @@
+{
+  "id": "golden-qa-003",
+  "type": "golden-qa",
+  "description": "Sustainability rank in the 2024 Tier-1 Gen-Z women study",
+  "question": "Where did sustainability rank as a stated purchase driver for Tier-1 Gen-Z women in the 2024 study?",
+  "expects": {
+    "min_claims": 1,
+    "any_claim_contains_substring": ["#3", "third", "behind price", "behind convenience"],
+    "must_have_citations": true,
+    "should_not_abstain": true
+  }
+}

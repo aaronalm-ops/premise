@@ -12,7 +12,10 @@
     "lint": "next lint",
     "ingest": "tsx --env-file=.env.local scripts/ingest.ts",
     "create-project": "tsx --env-file=.env.local scripts/create-project.ts",
-    "diagnose": "tsx --env-file=.env.local scripts/diagnose.ts"
+    "diagnose": "tsx --env-file=.env.local scripts/diagnose.ts",
+    "eval": "tsx --env-file=.env.local evals/cli.ts",
+    "eval:setup": "tsx --env-file=.env.local evals/cli.ts --setup-only",
+    "eval:reset": "tsx --env-file=.env.local evals/cli.ts --reset"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",
