@@ -17,6 +17,7 @@ export async function POST(
     const { drafts, retrieved_chunks } = await generateHypotheses({
       briefContent: brief.content,
       projectId: brief.project_id,
+      briefId: brief.id,
     });
 
     if (drafts.length === 0) {

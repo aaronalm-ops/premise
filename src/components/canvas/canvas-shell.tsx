@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ProjectSwitcher } from "./project-switcher";
 import { ChatPane } from "./chat-pane";
 import { ArtefactsPane } from "./artefacts-pane";
+import { CostBadge } from "./cost-badge";
 
 export function CanvasShell() {
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -18,7 +19,10 @@ export function CanvasShell() {
             Phase 3
           </span>
         </div>
-        <ProjectSwitcher selectedId={projectId} onSelect={setProjectId} />
+        <div className="flex items-center gap-2">
+          <CostBadge projectId={projectId} />
+          <ProjectSwitcher selectedId={projectId} onSelect={setProjectId} />
+        </div>
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] overflow-hidden">

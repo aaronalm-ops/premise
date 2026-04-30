@@ -4,7 +4,8 @@
 //   3. generate  — Sonnet drafts an answer, schema-forced citations
 //   4. verify    — Haiku checks each claim is directly supported, drops failures
 //
-// Used chunks are the ones at least one surviving claim cited.
+// Every Anthropic + Voyage call inside this pipeline records a row in
+// api_calls (telemetry) tagged with the project_id.
 
 import { retrieve } from "@/lib/rag/retrieval";
 import { rerank } from "@/lib/rag/reranker";
@@ -16,13 +17,26 @@ export async function ask(
   question: string,
   projectId: string,
 ): Promise<AskResult> {
-  const candidates = await retrieve(question, projectId, 12);
-  const top = await rerank(question, candidates, 5);
-  const draft = await generateAnswer(question, top);
-  const verified = await verifyAnswer(draft, top);
+  const candidates = await retrieve(question, projectId, 12, {
+    project_id: projectId,
+    endpoint: "embed-query",
+  });
+  const top = await rerank(question, candidates, 5, {
+    project_id: projectId,
+    endpoint: "rerank",
+  });
+  const draft = await generateAnswer(question, top, {
+    project_id: projectId,
+    endpoint: "rag-draft",
+  });
+  const verified = await verifyAnswer(draft, top, {
+    project_id: projectId,
+    endpoint: "rag-verify",
+  });
 
   const usedIds = new Set<string>();
-  for (const c of verified.claims) for (const id of c.citation_ids) usedIds.add(id);
+  for (const c of verified.claims)
+    for (const id of c.citation_ids) usedIds.add(id);
 
   return {
     question,

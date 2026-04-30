@@ -14,6 +14,8 @@ export async function PATCH(
       selected_variant_id?: string | null;
       status?: string;
       notes?: string | null;
+      target_construct?: string;
+      rationale?: string | null;
     };
 
     if (
@@ -31,6 +33,8 @@ export async function PATCH(
       selected_variant_id: body.selected_variant_id,
       status: body.status as HypothesisStatus | undefined,
       notes: body.notes,
+      target_construct: body.target_construct,
+      rationale: body.rationale,
     });
     return NextResponse.json({ question });
   } catch (err) {

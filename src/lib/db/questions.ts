@@ -113,6 +113,8 @@ export async function updateQuestion(input: {
   selected_variant_id?: string | null;
   status?: HypothesisStatus;
   notes?: string | null;
+  target_construct?: string;
+  rationale?: string | null;
 }): Promise<Question> {
   const supabase = getSupabaseServer();
   const patch: Record<string, unknown> = {
@@ -122,6 +124,9 @@ export async function updateQuestion(input: {
     patch.selected_variant_id = input.selected_variant_id;
   if (input.status !== undefined) patch.status = input.status;
   if (input.notes !== undefined) patch.notes = input.notes;
+  if (input.target_construct !== undefined)
+    patch.target_construct = input.target_construct;
+  if (input.rationale !== undefined) patch.rationale = input.rationale;
 
   const { data, error } = await supabase
     .from("questions")
@@ -131,4 +136,28 @@ export async function updateQuestion(input: {
     .single();
   if (error) throw new Error(`updateQuestion: ${error.message}`);
   return data as Question;
+}
+
+export async function updateQuestionVariant(input: {
+  id: string;
+  statement?: string;
+  response_format?: string | null;
+  response_options?: string[];
+}): Promise<QuestionVariant> {
+  const supabase = getSupabaseServer();
+  const patch: Record<string, unknown> = {};
+  if (input.statement !== undefined) patch.statement = input.statement;
+  if (input.response_format !== undefined)
+    patch.response_format = input.response_format;
+  if (input.response_options !== undefined)
+    patch.response_options = input.response_options;
+
+  const { data, error } = await supabase
+    .from("question_variants")
+    .update(patch)
+    .eq("id", input.id)
+    .select("*")
+    .single();
+  if (error) throw new Error(`updateQuestionVariant: ${error.message}`);
+  return data as QuestionVariant;
 }

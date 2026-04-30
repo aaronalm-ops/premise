@@ -1,11 +1,5 @@
-// Reranker — second pass that prunes top-k retrieved chunks down to top-n
-// truly relevant ones. We use Haiku (junior analyst, cheap) for this judgment.
-//
-// Why rerank: pure embedding similarity is good but noisy. A chunk that's
-// semantically close to a question may not actually answer it. The reranker
-// reads chunks like a human would and keeps only the ones that actually help.
-
-import { getAnthropic, MODELS } from "@/lib/llm/anthropic";
+import { MODELS } from "@/lib/llm/anthropic";
+import { tracedMessagesCreate, type TraceContext } from "@/lib/telemetry/tracer";
 import type { RetrievedChunk } from "@/lib/rag/types";
 
 const RERANKER_SYSTEM = `You are a research assistant evaluating which retrieved text chunks are actually relevant to answering a researcher's question.
@@ -27,6 +21,7 @@ export async function rerank(
   question: string,
   chunks: RetrievedChunk[],
   keepTop: number = 5,
+  context: TraceContext = { endpoint: "rerank" },
 ): Promise<RetrievedChunk[]> {
   if (chunks.length === 0) return [];
   if (chunks.length <= keepTop) return chunks;
@@ -35,18 +30,26 @@ export async function rerank(
     .map((c, i) => `[${i + 1}]\n${c.content}`)
     .join("\n\n---\n\n");
 
-  const anthropic = getAnthropic();
-  const response = await anthropic.messages.create({
-    model: MODELS.haiku,
-    max_tokens: 100,
-    system: RERANKER_SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content: `Question: ${question}\n\nCandidate chunks:\n\n${numbered}`,
-      },
-    ],
-  });
+  const response = await tracedMessagesCreate(
+    {
+      model: MODELS.haiku,
+      max_tokens: 100,
+      system: [
+        {
+          type: "text",
+          text: RERANKER_SYSTEM,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      messages: [
+        {
+          role: "user",
+          content: `Question: ${question}\n\nCandidate chunks:\n\n${numbered}`,
+        },
+      ],
+    },
+    context,
+  );
 
   const textBlock = response.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {

@@ -80,8 +80,13 @@ curl -s -X POST localhost:3000/api/ask -H 'Content-Type: application/json' \
 - Phase 2 — hypothesis generation **shipped**: `briefs` and `hypotheses` schema, hypothesis generator pipeline (RAG-augmented, forced tool_use, citation discipline), brief intake artefact, hypothesis cards with priority, citations, and accept/reject affordances. Reuses the strict-output chassis from D-010 (D-018).
 - Phase 3 — personas + questionnaires **shipped**: `personas`, `questions`, `question_variants` schema. Persona generator (RAG-augmented, requires `under_represents` field). Question generator with variant taxonomy (neutral_direct / leading / projective / behavioural / attitudinal / forced_choice / constant_sum / maxdiff) — every question has exactly 3 variants from different frames, each labelled with what it elicits and its caveat. Researcher selects one variant per question. D-019 captures the principle.
 - **Audit #1** completed (2026-04-30): see `docs/EVALUATION_LOG.md`. 38 specific gaps identified across 5 expert lenses; 5 prioritised for next push.
-- **Eval harness shipped**: `evals/` directory with 6 probe types (golden-qa, abstention, hallucination, hypothesis-quality, persona-quality, confidentiality), 20 probes, fixtures, dedicated test projects, CLI (`npm run eval`). Gates every prompt change. D-020 captures the principle.
-- **Next**: (a) prompt caching across all generation calls — closes the L-1 docs-vs-reality gap; (b) survey export (markdown/Qualtrics) — closes R-4 / U-3; (c) cost telemetry — closes L-7 / P-3.
+- **Eval harness shipped**: `evals/` directory with 6 probe types (golden-qa, abstention, hallucination, hypothesis-quality, persona-quality, confidentiality), 20 probes, fixtures, dedicated test projects, CLI (`npm run eval`). Gates every prompt change. D-020.
+- **Tier 1 of the Audit-#1 build queue shipped**:
+  - **Prompt caching** (D-021) — every generation call uses Anthropic `cache_control`. Closes L-1.
+  - **Survey export** (D-022) — markdown / Qualtrics / plaintext. Buttons in Questionnaire artefact, endpoint at `/api/briefs/[id]/export`. Closes R-4 / U-3.
+  - **Cost telemetry** (D-023) — `api_calls` table, `tracedMessagesCreate` + `recordVoyage` helpers, `/api/projects/[id]/costs` rollup, live cost badge in canvas header. Closes L-7 / P-3.
+  - **Edit affordance** (D-024) — inline edit on hypothesis statement / expected_direction / confirmation_criteria, and on each question variant's statement. Closes U-4.
+- **Next**: Tier 2 of the audit queue — engineering hygiene (project creation in UI, retry logic, DB transactions, idempotency, error message safety, Zod validation). Or move to Phase 4 (analysis). Aaron's call.
 
 ## What NOT to do
 

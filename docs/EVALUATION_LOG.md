@@ -147,19 +147,19 @@ Each gap above gets a status: `open` / `in-progress` / `resolved` / `wont-fix`. 
 | R-1 — Hypothesis specificity unverified | open | (eval harness) |
 | R-2 — Persona under_represents quality unverified | open | (eval harness) |
 | R-3 — Variant pairings methodologically weak | open | |
-| R-4 — No survey export | open | |
+| R-4 — No survey export | resolved | D-022 (Tier 1 — markdown/Qualtrics/plaintext) |
 | R-5 — No skip logic / ordering / demographic / screener | open | |
 | R-6 — No sample size guidance | open | |
-| L-1 — Prompt caching not implemented | open | |
-| L-2 — No eval harness | open | |
+| L-1 — Prompt caching not implemented | resolved | D-021 (Tier 1 — cache_control on every gen call) |
+| L-2 — No eval harness | resolved | D-020 (Phase 3.5) |
 | L-3 — No retry logic | open | |
 | L-4 — Reranker parses free text | open | |
 | L-5 — Verifier N calls vs 1 batch | open | |
 | L-6 — No idempotency on generation | open | |
-| L-7 — No cost telemetry | open | |
+| L-7 — No cost telemetry | resolved | D-023 (Tier 1 — api_calls + cost badge) |
 | L-8 — No prompt versioning | open | |
-| D-1 — Zero tests | open | (eval harness covers some) |
-| D-2 — Confidentiality untested | open | (eval harness) |
+| D-1 — Zero tests | partial | Eval harness covers behaviour regressions; no unit tests yet |
+| D-2 — Confidentiality untested | resolved | D-020 (confidentiality probes in eval harness) |
 | D-3 — No transactions | open | |
 | D-4 — Error messages leak | open | |
 | D-5 — Tool_use cast unvalidated | open | |
@@ -168,8 +168,8 @@ Each gap above gets a status: `open` / `in-progress` / `resolved` / `wont-fix`. 
 | D-8 — No optimistic UI | open | |
 | U-1 — Chat history doesn't persist | open | |
 | U-2 — No next-action guidance | open | |
-| U-3 — No survey export / copy-to-clipboard | open | |
-| U-4 — No edit affordance | open | |
+| U-3 — No survey export / copy-to-clipboard | resolved | D-022 (Tier 1) |
+| U-4 — No edit affordance | resolved | D-024 (Tier 1 — hypothesis + variant inline edit) |
 | U-5 — Loading states no pipeline stage | open | |
 | U-6 — No project creation from UI | open | |
 | U-7 — No delete anywhere | open | |
@@ -178,9 +178,99 @@ Each gap above gets a status: `open` / `in-progress` / `resolved` / `wont-fix`. 
 | U-10 — Mobile/tablet broken | wont-fix-yet | Commercial phase |
 | P-1 — No success metrics | open | |
 | P-2 — No user feedback loop | open | |
-| P-3 — No telemetry | open | |
-| P-4 — selected_variant_id has no consumer | open | (Phase 4) |
+| P-3 — No telemetry | resolved | D-023 (Tier 1 — initial telemetry; behavioural telemetry still open) |
+| P-4 — selected_variant_id has no consumer | partial | Now consumed by survey export (D-022); analysis pipeline (Phase 4) still pending |
 | P-5 — No in-product taxonomy explanation | open | |
 | P-6 — Hardcoded option counts | open | |
 | P-7 — No version history on briefs | open | |
 | P-8 — No A/B test infra | open | |
+
+---
+
+## Build queue — taskforce prioritisation (2026-04-30, post-eval-harness)
+
+Single ordered list of every recommendation from Audit #1, in execution order. Items 1-4 are next-up; everything below 20 is "after a real demo runs real client work." Items previously addressed by the eval harness (L-2, partial D-1, D-2, R-1, R-2) are not repeated below.
+
+### Tier 1 — Ship-blockers (~2.5 days)
+
+Closes the docs-vs-reality and value-chain gaps. Premise should not flip public without these.
+
+1. **Prompt caching across all generation calls** (Critical, 1d, L-1) — real cost is ~9× claimed; this is the largest credibility gap.
+2. **Survey export** (Critical, ½d, R-4 / U-3) — markdown + Qualtrics-pasteable; without it the product's value chain ends at "selected variant".
+3. **Cost telemetry** (High, ½d, L-7 / P-3) — per-call token accounting → per-project rollup → in-UI display. Pair with #1 to show savings empirically.
+4. **Edit affordance for hypotheses + questions** (High, ½d, U-4) — accept/reject is too binary for expert users.
+
+### Tier 2 — Engineering hygiene (~3 days)
+
+Protects against silent production failures.
+
+5. Project creation from the UI (High, ½d, U-6).
+6. Retry logic for Voyage / Anthropic transient errors (High, ½d, L-3).
+7. DB transactions on multi-step writes (High, ½d, D-3).
+8. Idempotency on generation endpoints (Medium, ½d, L-6).
+9. Error message safety in 500 responses (High, ½d, D-4).
+10. Request validation with Zod at API boundaries (Medium, ½d, D-6).
+
+### Tier 3 — UX completeness (~3 days)
+
+Closes the gaps an expert user will hit on first real run.
+
+11. Chat persistence — `ask_log` table + scrollback (High, ½d, U-1).
+12. Loading state with pipeline stages (Medium, ¼d, U-5).
+13. Confirmation on destructive regenerate (Medium, ¼d, U-8).
+14. Bulk operations (accept-all / reject-all-priority-N) (Medium, ½d).
+15. Next-action guidance in artefacts pane (Medium, ½d, U-2).
+16. Delete affordance for projects/briefs/hypotheses/personas/questions (Medium, ½d, U-7).
+17. In-product variant taxonomy explanation (Medium, ½d, P-5).
+18. Same-color-different-signal disambiguation (Low, ¼d, U-9).
+
+### Tier 4 — AI PM rigor (~4.5 days)
+
+Turns the product from "works" to "tunable."
+
+19. User feedback loop — capture "why rejected" (High, 1d, P-2).
+20. Cost regression in the eval harness (Medium, ½d, extends L-7).
+21. Subjective quality eval probes (Sonnet-as-judge for hypothesis specificity, persona under_represents quality) (High, 1d, R-1 / R-2).
+22. Success metrics defined (High, ¼d, P-1).
+23. Telemetry beyond cost (Medium, ½d, P-3).
+24. Prompt versioning (Medium, ½d, L-8).
+25. Optimistic UI updates (Low, ½d, D-8).
+
+### Tier 5 — Methodological depth (~4.5 days)
+
+Questionnaire-design power-user features.
+
+26. Variant pairing diversity rules (Medium, ½d, R-3).
+27. Question ordering / demographic block / screener block (High, 1-2d, R-5).
+28. Sample size / quota guidance per persona (Medium, ½d, R-6).
+29. Researcher-controlled option counts (Medium, ½d, P-6).
+30. Edit hypothesis/persona content beyond status (Medium, ½d, extends U-4).
+31. Streaming responses for long generation calls (Low, 1d, D-7).
+
+### Deferred (not in queue, with rationale)
+
+| Item | Why deferred |
+|---|---|
+| Mobile / tablet (U-10) | Commercial phase — after public flip + first paid users |
+| A/B test infrastructure (P-8) | Premature for portfolio — post-commercial |
+| Phase 4 (Analysis: quant + qual ingestion + verdicts) | Explicit phase work, separately roadmapped |
+| Phase 5 (Story angles) | Explicit phase work |
+| `selected_variant_id` downstream consumer (P-4) | Resolves automatically once Phase 4 reads it |
+| Multi-tenant auth | Commercial phase |
+| Real-time collaboration | Post-commercial |
+| Brief version history (P-7) | Defer until a researcher actually loses brief work |
+| Tool_use cast unvalidated (D-5) | Mitigated by post-validation in code; full Zod validation comes with #10 |
+
+### Recommended next move
+
+**Tier 1 + Tier 2 (~5.5 days of focused work) before flipping the repo public.** That makes Premise audit-defensible, operable, and cost-honest. After that, the choice is Tier 3 (UX polish) vs Phase 4 (analysis) vs flipping public for external feedback.
+
+### Cumulative time estimate
+
+| Tier | Theme | Cumulative time |
+|---|---|---|
+| Tier 1 | Ship-blockers | 2.5 days |
+| Tier 2 | Engineering hygiene | 5.5 days |
+| Tier 3 | UX completeness | 8.5 days |
+| Tier 4 | AI PM rigor | 13 days |
+| Tier 5 | Methodological depth | 17.5 days |

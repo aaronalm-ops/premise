@@ -1,8 +1,7 @@
-// Persona recommendation pipeline.
-// Reuses the strict-output chassis from D-010 / D-018:
-// retrieve -> rerank -> Sonnet with forced tool_use -> citation discipline.
+// Persona recommendation pipeline with prompt caching + telemetry.
 
-import { getAnthropic, MODELS } from "@/lib/llm/anthropic";
+import { MODELS } from "@/lib/llm/anthropic";
+import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import { PERSONA_SYSTEM } from "@/lib/prompts/personas";
 import { retrieve } from "@/lib/rag/retrieval";
 import { rerank } from "@/lib/rag/reranker";
@@ -84,12 +83,14 @@ const PERSONA_TOOL = {
     },
     required: ["personas"],
   },
+  cache_control: { type: "ephemeral" as const },
 };
 
 export type GeneratePersonasInput = {
   briefContent: string;
   projectId: string;
   acceptedHypotheses: Hypothesis[];
+  briefId?: string | null;
 };
 
 export type GeneratePersonasResult = {
@@ -100,8 +101,19 @@ export type GeneratePersonasResult = {
 export async function generatePersonas(
   input: GeneratePersonasInput,
 ): Promise<GeneratePersonasResult> {
-  const candidates = await retrieve(input.briefContent, input.projectId, 18);
-  const chunks = await rerank(input.briefContent, candidates, 8);
+  const ctx = {
+    project_id: input.projectId,
+    brief_id: input.briefId ?? null,
+  };
+
+  const candidates = await retrieve(input.briefContent, input.projectId, 18, {
+    ...ctx,
+    endpoint: "embed-query",
+  });
+  const chunks = await rerank(input.briefContent, candidates, 8, {
+    ...ctx,
+    endpoint: "rerank",
+  });
 
   if (chunks.length === 0) {
     return { drafts: [], retrieved_chunks: [] };
@@ -120,15 +132,17 @@ export async function generatePersonas(
 
   const userPrompt = `# Research brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypotheses}\n\n# Retrieved chunks (your source of grounding)\n${corpus}\n\nCall propose_personas now with 3-5 ranked personas.`;
 
-  const anthropic = getAnthropic();
-  const response = await anthropic.messages.create({
-    model: MODELS.sonnet,
-    max_tokens: 3072,
-    system: PERSONA_SYSTEM,
-    tools: [PERSONA_TOOL],
-    tool_choice: { type: "tool", name: PERSONA_TOOL.name },
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  const response = await tracedMessagesCreate(
+    {
+      model: MODELS.sonnet,
+      max_tokens: 3072,
+      system: [{ type: "text", text: PERSONA_SYSTEM }],
+      tools: [PERSONA_TOOL],
+      tool_choice: { type: "tool", name: PERSONA_TOOL.name },
+      messages: [{ role: "user", content: userPrompt }],
+    },
+    { ...ctx, endpoint: "persona-gen" },
+  );
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");
   if (!toolBlock || toolBlock.type !== "tool_use") {

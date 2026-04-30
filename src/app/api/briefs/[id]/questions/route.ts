@@ -56,6 +56,8 @@ export async function POST(
       briefContent: brief.content,
       acceptedHypotheses,
       acceptedPersonas,
+      projectId: brief.project_id,
+      briefId: brief.id,
     });
 
     if (drafts.length === 0) {

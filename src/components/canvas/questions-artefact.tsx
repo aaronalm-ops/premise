@@ -66,6 +66,15 @@ export function QuestionsArtefact({
     rejected: questions.filter((q) => q.status === "rejected"),
   };
 
+  const exportable = buckets.accepted.filter((q) => q.selected_variant_id !== null);
+  const canExport = !!brief && exportable.length > 0;
+
+  const triggerExport = (format: "markdown" | "qualtrics" | "plaintext") => {
+    if (!brief) return;
+    const url = `/api/briefs/${brief.id}/export?format=${format}&download=1`;
+    window.location.href = url;
+  };
+
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)]">
       <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2">
@@ -76,20 +85,42 @@ export function QuestionsArtefact({
           <span className="text-[10px] text-[var(--color-muted-foreground)]">
             {questions.length === 0
               ? "none yet"
-              : `${buckets.accepted.length} accepted · ${buckets.proposed.length} proposed · ${buckets.rejected.length} rejected`}
+              : `${buckets.accepted.length} accepted · ${buckets.proposed.length} proposed · ${buckets.rejected.length} rejected · ${exportable.length} ready to export`}
           </span>
         </div>
-        <button
-          onClick={generate}
-          disabled={!brief || !hasAcceptedHypotheses || generating}
-          className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[10px] font-medium uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {generating
-            ? "Drafting…"
-            : questions.length === 0
-              ? "Draft questionnaire"
-              : "Redraft proposed"}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => triggerExport("markdown")}
+            disabled={!canExport}
+            title={
+              canExport
+                ? "Download accepted questions with selected variants"
+                : "Accept at least one question and pick a variant"
+            }
+            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] font-medium uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Export .md
+          </button>
+          <button
+            onClick={() => triggerExport("qualtrics")}
+            disabled={!canExport}
+            title="Qualtrics-compatible advanced format"
+            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] font-medium uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Qualtrics
+          </button>
+          <button
+            onClick={generate}
+            disabled={!brief || !hasAcceptedHypotheses || generating}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[10px] font-medium uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {generating
+              ? "Drafting…"
+              : questions.length === 0
+                ? "Draft questionnaire"
+                : "Redraft proposed"}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3 px-4 py-3">
@@ -282,6 +313,7 @@ function QuestionCard({
             onSelect={() =>
               selectVariant(q.selected_variant_id === v.id ? null : v.id)
             }
+            onEdited={onChange}
             disabled={busy !== null}
           />
         ))}
@@ -294,33 +326,120 @@ function VariantCard({
   v,
   selected,
   onSelect,
+  onEdited,
   disabled,
 }: {
   v: QuestionVariant;
   selected: boolean;
   onSelect: () => void;
+  onEdited: () => void;
   disabled: boolean;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(v.statement);
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDraft(v.statement);
+    setEditing(true);
+  };
+
+  const cancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditing(false);
+  };
+
+  const save = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/question-variants/${v.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statement: draft }),
+      });
+      if (r.ok) {
+        setEditing(false);
+        onEdited();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const baseClass = `flex flex-col gap-1.5 rounded-md border px-3 py-2 text-left transition ${
+    selected
+      ? "border-emerald-400 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30"
+      : "border-[var(--color-border)] bg-[var(--color-background)] hover:border-[var(--color-foreground)]/30"
+  }`;
+
+  if (editing) {
+    return (
+      <div className={baseClass}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+            {VARIANT_LABELS[v.variant_type]} · editing
+          </span>
+        </div>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={4}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-xs leading-relaxed"
+        />
+        <div className="flex justify-end gap-1">
+          <button
+            type="button"
+            onClick={cancelEdit}
+            disabled={saving}
+            className="rounded border border-[var(--color-border)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving || draft.trim().length === 0}
+            className="rounded bg-[var(--color-foreground)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-background)] disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
       onClick={onSelect}
       disabled={disabled}
-      className={`flex flex-col gap-1.5 rounded-md border px-3 py-2 text-left transition ${
-        selected
-          ? "border-emerald-400 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30"
-          : "border-[var(--color-border)] bg-[var(--color-background)] hover:border-[var(--color-foreground)]/30"
-      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+      className={`${baseClass} ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
           {VARIANT_LABELS[v.variant_type]}
         </span>
-        {selected && (
-          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
-            SELECTED
+        <div className="flex items-center gap-1">
+          {selected && (
+            <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+              SELECTED
+            </span>
+          )}
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={startEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") startEdit(e as never);
+            }}
+            className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:underline"
+          >
+            edit
           </span>
-        )}
+        </div>
       </div>
       <p className="leading-relaxed text-[var(--color-foreground)]">
         {v.statement}

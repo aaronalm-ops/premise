@@ -1,9 +1,9 @@
-// Strict-output answer generation.
-// We use Anthropic tool_use with a forced tool call — Claude must populate a
-// schema we control, which is meaningfully more reliable than asking it to
-// produce JSON in free text.
+// Strict-output answer generation with prompt caching.
+// System prompt + tool definition are cached (90% input cost discount on cache hits).
+// Anthropic tool_use forces every claim to have non-empty citation_ids.
 
-import { getAnthropic, MODELS } from "@/lib/llm/anthropic";
+import { MODELS } from "@/lib/llm/anthropic";
+import { tracedMessagesCreate, type TraceContext } from "@/lib/telemetry/tracer";
 import { STRICT_RAG_SYSTEM } from "@/lib/prompts/strict-rag";
 import type { RetrievedChunk, StrictAnswer } from "@/lib/rag/types";
 
@@ -52,11 +52,13 @@ const ANSWER_TOOL = {
     },
     required: ["claims", "unanswered_aspects"],
   },
+  cache_control: { type: "ephemeral" as const },
 };
 
 export async function generateAnswer(
   question: string,
   chunks: RetrievedChunk[],
+  context: TraceContext = { endpoint: "rag-draft" },
 ): Promise<StrictAnswer> {
   if (chunks.length === 0) {
     return {
@@ -73,15 +75,17 @@ export async function generateAnswer(
 
   const userPrompt = `# Researcher's question\n${question}\n\n# Retrieved chunks (the only source you may use)\n${corpus}\n\nCall answer_with_citations now.`;
 
-  const anthropic = getAnthropic();
-  const response = await anthropic.messages.create({
-    model: MODELS.sonnet,
-    max_tokens: 2048,
-    system: STRICT_RAG_SYSTEM,
-    tools: [ANSWER_TOOL],
-    tool_choice: { type: "tool", name: ANSWER_TOOL.name },
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  const response = await tracedMessagesCreate(
+    {
+      model: MODELS.sonnet,
+      max_tokens: 2048,
+      system: [{ type: "text", text: STRICT_RAG_SYSTEM }],
+      tools: [ANSWER_TOOL],
+      tool_choice: { type: "tool", name: ANSWER_TOOL.name },
+      messages: [{ role: "user", content: userPrompt }],
+    },
+    context,
+  );
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");
   if (!toolBlock || toolBlock.type !== "tool_use") {

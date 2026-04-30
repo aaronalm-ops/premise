@@ -150,8 +150,16 @@ function HypothesisCard({
   h: Hypothesis;
   onChange: () => void;
 }) {
-  const [busy, setBusy] = useState<HypothesisStatus | null>(null);
+  const [busy, setBusy] = useState<HypothesisStatus | "save" | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftStatement, setDraftStatement] = useState(h.statement);
+  const [draftDirection, setDraftDirection] = useState(
+    h.expected_direction ?? "",
+  );
+  const [draftCriteria, setDraftCriteria] = useState(
+    h.confirmation_criteria ?? "",
+  );
 
   const setStatus = async (status: HypothesisStatus) => {
     setBusy(status);
@@ -167,6 +175,35 @@ function HypothesisCard({
     }
   };
 
+  const saveEdit = async () => {
+    setBusy("save");
+    try {
+      const r = await fetch(`/api/hypotheses/${h.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          statement: draftStatement,
+          expected_direction: draftDirection || null,
+          confirmation_criteria: draftCriteria || null,
+        }),
+      });
+      if (r.ok) {
+        setEditing(false);
+        onChange();
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const startEdit = () => {
+    setDraftStatement(h.statement);
+    setDraftDirection(h.expected_direction ?? "");
+    setDraftCriteria(h.confirmation_criteria ?? "");
+    setEditing(true);
+    setExpanded(true);
+  };
+
   return (
     <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 text-xs">
       <div className="flex items-center justify-between gap-2">
@@ -178,6 +215,14 @@ function HypothesisCard({
           >
             {expanded ? "hide" : "details"}
           </button>
+          {!editing && (
+            <button
+              onClick={startEdit}
+              className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:underline"
+            >
+              edit
+            </button>
+          )}
         </div>
         <div className="flex shrink-0 gap-1">
           {h.status !== "accepted" && (
@@ -210,9 +255,63 @@ function HypothesisCard({
         </div>
       </div>
 
-      <p className="mt-1.5 leading-relaxed text-[var(--color-foreground)]">
-        {h.statement}
-      </p>
+      {editing ? (
+        <div className="mt-2 space-y-2">
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
+              Statement
+            </span>
+            <textarea
+              value={draftStatement}
+              onChange={(e) => setDraftStatement(e.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-xs leading-relaxed"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
+              Expected direction
+            </span>
+            <textarea
+              value={draftDirection}
+              onChange={(e) => setDraftDirection(e.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-xs leading-relaxed"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
+              Confirmation criteria
+            </span>
+            <textarea
+              value={draftCriteria}
+              onChange={(e) => setDraftCriteria(e.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-xs leading-relaxed"
+            />
+          </label>
+          <div className="flex justify-end gap-1">
+            <button
+              onClick={() => setEditing(false)}
+              disabled={busy === "save"}
+              className="rounded border border-[var(--color-border)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={saveEdit}
+              disabled={busy === "save" || draftStatement.trim().length === 0}
+              className="rounded bg-[var(--color-foreground)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-background)] disabled:opacity-40"
+            >
+              {busy === "save" ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-1.5 leading-relaxed text-[var(--color-foreground)]">
+          {h.statement}
+        </p>
+      )}
 
       {expanded && (
         <div className="mt-3 space-y-2 border-t border-[var(--color-border)] pt-2 text-[var(--color-muted-foreground)]">

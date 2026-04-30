@@ -55,7 +55,10 @@ export async function ingestDocument(input: IngestInput): Promise<IngestResult> 
   const allEmbeddings: number[][] = [];
   for (let i = 0; i < chunks.length; i += VOYAGE_BATCH) {
     const batch = chunks.slice(i, i + VOYAGE_BATCH);
-    const result = await embed(batch, "document");
+    const result = await embed(batch, "document", {
+      project_id: input.projectId,
+      endpoint: "embed-doc",
+    });
     allEmbeddings.push(...result.embeddings);
     totalTokens += result.totalTokens;
   }

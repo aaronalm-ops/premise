@@ -759,8 +759,141 @@ Eval harness with no probes for the load-bearing commitments: passing eval feels
 
 ---
 
+## D-021 — Prompt caching is now real, not aspirational
+
+### The story
+
+You promised your client a tracker study at ₹3 lakh per wave. You shipped wave 1 at ₹3L. Then on the recon you realised the *actual* fielding cost — including respondent incentives, fieldwork QA, and translation rounds — was closer to ₹8L. You've been silently absorbing the difference for two waves.
+
+That's what we'd been doing with cost. D-003 said "we use Anthropic prompt caching aggressively" — and we did, in the docs. The actual code still re-sent the entire system prompt and tool definition on every call. Real cost was about 9× what the case study claimed.
+
+This was caught in the post-Phase-3 audit (Audit #1, L-1). Now fixed.
+
+### What we changed
+
+Every Anthropic call in the product now uses prompt caching:
+
+| Call site | What's cached | Cache hit savings |
+|---|---|---|
+| `generation.ts` (RAG draft) | system + tool definition | 90% on input |
+| `verification.ts` (claim verifier) | system | 90% on input |
+| `reranker.ts` (Haiku rerank) | system | 90% on input |
+| `hypothesis-generator.ts` | system + tool definition | 90% on input |
+| `persona-generator.ts` | system + tool definition | 90% on input |
+| `question-generator.ts` | system + tool definition | 90% on input |
+
+Anthropic caches the request prefix up to the last `cache_control` marker. We mark the trailing cacheable element (system prompt or tool definition). Subsequent calls within the cache TTL (5 minutes default) hit the cache: cached input billed at 10% of normal price.
+
+Cost telemetry (D-023) records cache hits in real time so we can see the savings empirically. The eval harness gates this change — every probe runs before and after caching to confirm no behaviour regression.
+
+### The PM lesson
+
+**Aspirational documentation is a debt.** When the docs claim a behaviour the code doesn't implement, every audit finds it, every reader catches it, and the trust narrative around the rest of the docs gets diluted by the one obvious lie. The cost lie was the most embarrassing finding in the audit because it was load-bearing for the "<$5/mo" claim.
+
+The harder lesson: **mechanical changes deserve eval gates too.** It's tempting to think "this is just adding `cache_control` markers — there's no behaviour change." But Anthropic processes cached content slightly differently than fresh content, and edge cases happen. The eval harness catches these in 60 seconds. Trust the harness; never assume mechanical changes can't break behaviour.
+
+### What would break if we got it wrong
+
+Skip the eval gate: caching could subtly change tool_use behaviour on cache hits, and we'd ship a regression the user only finds when generation starts producing weird outputs. With the harness, we catch any regression in the same run that introduced it.
+
+Skip caching itself: cost stays ~9× higher than promised, the "<$5/mo" claim is fiction, and the portfolio narrative around cost discipline is undermined.
+
+---
+
+## D-022 — Survey export: markdown, Qualtrics, plaintext
+
+### The story
+
+You spent two weeks running Premise alongside a real client project. You generated hypotheses, you accepted variants, you built the perfect questionnaire. Then the senior researcher asked: "great, send me the questionnaire" — and your only options were (a) take a screenshot of the canvas, (b) manually retype every question into Google Docs.
+
+The product's value chain stopped one step short of the actual handoff. Researchers don't field questionnaires in Premise; they field them in Qualtrics, SurveyMonkey, Typeform, Google Forms, or paper. We needed a bridge.
+
+### What we built
+
+Three export formats, available from buttons in the questionnaire artefact:
+
+- **Markdown** — the canonical format. Includes target_construct, rationale, the hypothesis it tests, the chosen variant with its elicits/caveat, response format, and response options. The format you paste into a brief, share with a senior, or attach to a deck.
+- **Qualtrics advanced format** — paste-into-Qualtrics directly. Uses the `[[AdvancedFormat]]` and `[[Question:MC:SingleAnswer]]` markers that Qualtrics's bulk import understands.
+- **Plaintext** — bare bones, one question and its options. For SurveyMonkey, Google Forms, paper studies.
+
+Only **accepted questions with a selected variant** are exported. Proposed or rejected questions are silently filtered.
+
+### The PM lesson
+
+**Build the value chain, not the feature.** The instinct of an early-stage builder is to optimise the most central feature (here, generating great questionnaires). The instinct of a product person is to ask "what does the user do *after* the central feature works?" If the answer is "open a different tool and copy by hand," your product has a hole in the value chain, and that hole is a bigger conversion blocker than any feature gap.
+
+For an AI PM specifically: **integration with the user's existing tools is the difference between a demo and a workflow tool.** Premise produces beautifully structured questionnaires. Without export, the researcher leaves Premise to actually use them — Premise becomes an "exploratory" tool, not a "production" tool. Export changes that.
+
+### What would break if we got it wrong
+
+No export: the product feels complete on a demo but stops being used the moment a researcher tries to ship a real wave. Conversion from "tried it" to "uses it weekly" never happens.
+
+---
+
+## D-023 — Cost telemetry — every API call recorded
+
+### The story
+
+You're running fieldwork for a client. End of month, finance asks: "how much did this study cost?" You pull invoices from each subcontractor, the panel provider, the translation agency, and the hosting bill. It takes an afternoon. The next month, you build a tracker spreadsheet that records every line item the moment it's incurred. Now finance gets the answer in 30 seconds.
+
+We just did the equivalent for Premise.
+
+### What we built
+
+A new `api_calls` table records every Anthropic and Voyage call with:
+- `service`, `endpoint` (e.g. `rag-draft`, `hypothesis-gen`, `embed-doc`)
+- `model`, `input_tokens`, `cached_input_tokens`, `cache_creation_tokens`, `output_tokens`
+- `cost_usd` (computed from the pricing table at insert time)
+- `duration_ms`
+- Tags: `project_id`, `brief_id`
+
+The `tracedMessagesCreate` and `recordVoyage` helpers wrap every SDK call. Telemetry persistence failures never propagate to the user-facing flow — they log a warning and continue. The cost badge in the canvas header polls every 8 seconds and shows running spend per project, cache-hit rate, and cost breakdown by endpoint.
+
+`/api/projects/[id]/costs` exposes the rollup as JSON for downstream tooling.
+
+### The PM lesson
+
+**Measure the metric you make a claim about.** "Less than $5 per month" is a marketing claim. Without telemetry, it was a vibe. With telemetry, it's a measurement: every call recorded, every dollar accounted for. The number on the cost badge is *the* number; there is no other version of the truth.
+
+For an AI PM: **cost telemetry is the cheapest credibility layer you can add to an AI product.** It demonstrates engineering rigour, makes the cost narrative defensible, and surfaces regressions the moment a prompt change starts costing more. Build it before you need it; you'll need it the moment a client or a hiring manager asks "what's this actually cost to run?"
+
+### What would break if we got it wrong
+
+No telemetry: cost claims stay aspirational. A regression that doubles spend goes unnoticed until you check the Anthropic console. The eval harness can't gate on cost. The "<$5/mo" narrative remains unproven.
+
+Telemetry that breaks the user flow on failure: a Supabase blip would kill a generation request. Hence the deliberate decision to swallow telemetry errors and continue.
+
+---
+
+## D-024 — Edit affordance for hypotheses, questions, and question variants
+
+### The story
+
+The "options not answers" principle (D-018, D-019) widens the option space. The researcher selects from variants. But sometimes the bot's *best* variant isn't quite right — the wording is too leading, a respondent-facing word feels off, the response options need an extra category. Until now, the only choice was Accept-as-is or Reject. There was no "almost — let me tweak the third word."
+
+Real researchers tweak. We added inline edit affordances.
+
+### What we built
+
+- **Hypothesis edit**: click "edit" on any hypothesis card to inline-edit `statement`, `expected_direction`, `confirmation_criteria`. Save → DB updated → no LLM call needed.
+- **Question variant edit**: click "edit" on any variant card to inline-edit the `statement`. The variant's methodological frame (Neutral / Behavioural / Projective / etc.) and its `what_it_elicits` / `caveat` stay frozen — the *frame* is the bot's contribution, the *exact wording* is the researcher's.
+
+Edits don't move a hypothesis or question out of its current status — accepted hypotheses stay accepted. Edits don't trigger regeneration. The DB is the truth; the bot's prior generation lives in git history if anyone needs it.
+
+### The PM lesson
+
+**Expert tools earn loyalty by closing the last 5%.** A bot that produces 95% of what an expert needs and forces them out of the tool for the last 5% gets relegated to "nice to play with sometimes." A bot that produces 95% *and lets the expert close the last 5% in place* becomes a daily driver.
+
+This is the deeper version of D-019 — not just "show options," but "let the expert finish the work the way only they can." The widening + finishing combination is what makes Premise feel like an extension of the researcher's hands rather than a black box that sometimes returns useful things.
+
+### What would break if we got it wrong
+
+No edit affordance: senior researchers reject good hypotheses because one word is off, or accept variants and then silently rewrite them in a doc outside Premise. The product loses the expert's trust by failing on the last 5%, and exports go out with the bot's wording instead of the researcher's.
+
+---
+
 ## How to use this doc going forward
 
-- **Every new decision gets a numbered entry below.** D-021, D-022, etc.
+- **Every new decision gets a numbered entry below.** D-025, D-026, etc.
 - **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
 - **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.

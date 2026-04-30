@@ -1,11 +1,7 @@
-// Question generation pipeline with variants.
-// Unlike personas, questions are not strictly RAG-grounded — the variant
-// taxonomy is methodological, not corpus-derived. We still pass the brief +
-// accepted hypotheses + recommended personas as context. The schema enforces
-// the "options not answers" principle: every question must have exactly 3
-// variants from different methodological frames.
+// Question generation pipeline with variants, prompt caching + telemetry.
 
-import { getAnthropic, MODELS } from "@/lib/llm/anthropic";
+import { MODELS } from "@/lib/llm/anthropic";
+import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import { QUESTION_SYSTEM } from "@/lib/prompts/questions";
 import {
   VARIANT_TYPES,
@@ -101,12 +97,15 @@ const QUESTION_TOOL = {
     },
     required: ["questions"],
   },
+  cache_control: { type: "ephemeral" as const },
 };
 
 export type GenerateQuestionsInput = {
   briefContent: string;
   acceptedHypotheses: Hypothesis[];
   acceptedPersonas: Persona[];
+  projectId: string;
+  briefId?: string | null;
 };
 
 export type GenerateQuestionsResult = {
@@ -136,15 +135,21 @@ export async function generateQuestions(
 
   const userPrompt = `# Brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypothesesText}\n\n# Recommended personas\n${personasText}\n\nCall propose_questions now with 4-8 questions, each with 3 variants.`;
 
-  const anthropic = getAnthropic();
-  const response = await anthropic.messages.create({
-    model: MODELS.sonnet,
-    max_tokens: 4096,
-    system: QUESTION_SYSTEM,
-    tools: [QUESTION_TOOL],
-    tool_choice: { type: "tool", name: QUESTION_TOOL.name },
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  const response = await tracedMessagesCreate(
+    {
+      model: MODELS.sonnet,
+      max_tokens: 4096,
+      system: [{ type: "text", text: QUESTION_SYSTEM }],
+      tools: [QUESTION_TOOL],
+      tool_choice: { type: "tool", name: QUESTION_TOOL.name },
+      messages: [{ role: "user", content: userPrompt }],
+    },
+    {
+      project_id: input.projectId,
+      brief_id: input.briefId ?? null,
+      endpoint: "question-gen",
+    },
+  );
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");
   if (!toolBlock || toolBlock.type !== "tool_use") {

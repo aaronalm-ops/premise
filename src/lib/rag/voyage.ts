@@ -1,10 +1,8 @@
 // Voyage AI embeddings client — direct REST, no SDK dependency.
-//
-// voyage-3 produces 1024-dimensional embeddings at ~$0.06 per million tokens.
-// We use input_type "document" when embedding source corpus chunks, and
-// "query" when embedding a user question — Voyage tunes these slightly differently.
+// Records each call into api_calls (telemetry) when a TraceContext is provided.
 
 import { requireEnv } from "@/lib/env";
+import { recordVoyage, type TraceContext } from "@/lib/telemetry/tracer";
 
 const VOYAGE_URL = "https://api.voyageai.com/v1/embeddings";
 const MODEL = "voyage-3";
@@ -26,11 +24,13 @@ export type EmbedResult = {
 export async function embed(
   inputs: string[],
   inputType: VoyageInputType,
+  context?: TraceContext,
 ): Promise<EmbedResult> {
   if (inputs.length === 0) {
     return { embeddings: [], totalTokens: 0 };
   }
 
+  const start = Date.now();
   const res = await fetch(VOYAGE_URL, {
     method: "POST",
     headers: {
@@ -61,7 +61,11 @@ export async function embed(
     }
   }
 
-  return { embeddings, totalTokens: json.usage.total_tokens };
+  const result: EmbedResult = { embeddings, totalTokens: json.usage.total_tokens };
+  if (context) {
+    void recordVoyage(result.totalTokens, context, Date.now() - start);
+  }
+  return result;
 }
 
 export const VOYAGE_DIMENSIONS = DIMENSIONS;

@@ -4,14 +4,19 @@
 
 import { getSupabaseServer } from "@/lib/db/supabase";
 import { embed } from "@/lib/rag/voyage";
+import type { TraceContext } from "@/lib/telemetry/tracer";
 import type { RetrievedChunk } from "@/lib/rag/types";
 
 export async function retrieve(
   question: string,
   projectId: string,
   topK: number = 12,
+  context: TraceContext = { endpoint: "embed-query" },
 ): Promise<RetrievedChunk[]> {
-  const { embeddings } = await embed([question], "query");
+  const { embeddings } = await embed([question], "query", {
+    ...context,
+    project_id: context.project_id ?? projectId,
+  });
   const queryEmbedding = embeddings[0];
 
   const supabase = getSupabaseServer();

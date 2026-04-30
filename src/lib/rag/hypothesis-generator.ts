@@ -1,15 +1,9 @@
-// Hypothesis generation pipeline.
-//
-// Reuses the same primitives as the strict-mode RAG pipeline:
-//   1. Retrieve top-k chunks relevant to the brief
-//   2. Rerank to top-N actually relevant
-//   3. Sonnet draft via forced tool_use schema
-//
-// The schema enforces citation discipline at the structural level (D-010, D-018):
-// every hypothesis must cite supporting and/or contradicting chunks; pure
-// speculation is rejected by the schema, not by the prompt.
+// Hypothesis generation pipeline with prompt caching + telemetry.
+// Reuses the strict-output chassis from D-010 / D-018:
+// retrieve -> rerank -> Sonnet with forced tool_use -> citation discipline.
 
-import { getAnthropic, MODELS } from "@/lib/llm/anthropic";
+import { MODELS } from "@/lib/llm/anthropic";
+import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import { HYPOTHESIS_SYSTEM } from "@/lib/prompts/hypothesis";
 import { retrieve } from "@/lib/rag/retrieval";
 import { rerank } from "@/lib/rag/reranker";
@@ -84,11 +78,13 @@ const HYPOTHESIS_TOOL = {
     },
     required: ["hypotheses"],
   },
+  cache_control: { type: "ephemeral" as const },
 };
 
 export type GenerateHypothesesInput = {
   briefContent: string;
   projectId: string;
+  briefId?: string | null;
 };
 
 export type GenerateHypothesesResult = {
@@ -99,8 +95,19 @@ export type GenerateHypothesesResult = {
 export async function generateHypotheses(
   input: GenerateHypothesesInput,
 ): Promise<GenerateHypothesesResult> {
-  const candidates = await retrieve(input.briefContent, input.projectId, 18);
-  const chunks = await rerank(input.briefContent, candidates, 8);
+  const ctx = {
+    project_id: input.projectId,
+    brief_id: input.briefId ?? null,
+  };
+
+  const candidates = await retrieve(input.briefContent, input.projectId, 18, {
+    ...ctx,
+    endpoint: "embed-query",
+  });
+  const chunks = await rerank(input.briefContent, candidates, 8, {
+    ...ctx,
+    endpoint: "rerank",
+  });
 
   if (chunks.length === 0) {
     return { drafts: [], retrieved_chunks: [] };
@@ -112,15 +119,17 @@ export async function generateHypotheses(
 
   const userPrompt = `# Research brief\n${input.briefContent}\n\n# Retrieved chunks (your only source of grounding)\n${corpus}\n\nCall propose_hypotheses now with 5-7 hypotheses.`;
 
-  const anthropic = getAnthropic();
-  const response = await anthropic.messages.create({
-    model: MODELS.sonnet,
-    max_tokens: 4096,
-    system: HYPOTHESIS_SYSTEM,
-    tools: [HYPOTHESIS_TOOL],
-    tool_choice: { type: "tool", name: HYPOTHESIS_TOOL.name },
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  const response = await tracedMessagesCreate(
+    {
+      model: MODELS.sonnet,
+      max_tokens: 4096,
+      system: [{ type: "text", text: HYPOTHESIS_SYSTEM }],
+      tools: [HYPOTHESIS_TOOL],
+      tool_choice: { type: "tool", name: HYPOTHESIS_TOOL.name },
+      messages: [{ role: "user", content: userPrompt }],
+    },
+    { ...ctx, endpoint: "hypothesis-gen" },
+  );
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");
   if (!toolBlock || toolBlock.type !== "tool_use") {
