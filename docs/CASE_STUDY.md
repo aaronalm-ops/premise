@@ -206,6 +206,7 @@ The harness lives in `evals/` and runs as a `npm run eval` command. Every PR run
 - *(2026-04-29)* The decision to skip LangChain and call the SDK directly is not minimalism for its own sake — it's because every loophole I want to close lives inside the prompt, and frameworks abstract the prompt away from me.
 - *(2026-04-29)* Tiny gotcha worth remembering: Windows File Explorer silently strips leading dots when you create or rename files in the GUI. My first `.env.local` arrived as `env.local`, and Next.js ignored it. The "are my keys configured?" health check caught it in 5 seconds — the dial-tone instinct (D-013) earning its keep on day one.
 - *(2026-04-29)* Naming the product **Premise**. The name landed because it's the first thing a researcher brings to any project — and the product widens the option space *from* that premise. The PM lesson: optimise naming for positioning fit, not for distinctiveness.
+- *(2026-04-30)* Tooling stability lesson: Turbopack (the new Next.js dev bundler) crashes on Windows when the project path contains spaces — the kind of bug that produces a 500 page with a stack trace deep inside `node_modules`. Switched to the standard webpack-based dev server. Slower by a second on cold starts; rock-solid otherwise. The general AI-PM read: when the *new and faster* tool has rough edges on your specific environment, the *boring and stable* tool buys back hours of debugging and zero-cost cognitive load. Default to boring for foundations.
 
 ## Appendix — The Taskforce Roles
 

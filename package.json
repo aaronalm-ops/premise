@@ -4,8 +4,9 @@
   "private": true,
   "description": "Premise — AI co-pilot for market and consumer insights researchers. Brief -> hypotheses -> questionnaire -> analysis -> story angles, grounded in your historical research via strict-mode RAG.",
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "next build",
+    "clean": "node -e \"require('fs').rmSync('.next', { recursive: true, force: true })\"",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
