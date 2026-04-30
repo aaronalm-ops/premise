@@ -9,13 +9,16 @@ import {
 import { IdParam } from "@/lib/validation/schemas";
 import { HttpError, safeError } from "@/lib/api/safe-error";
 import { withGenerationLock } from "@/lib/api/with-lock";
+import { assertBriefAccess, requireUser } from "@/lib/auth/server";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const user = await requireUser();
     const { id } = IdParam.parse(await params);
+    await assertBriefAccess(id, user.id);
     const personas = await listPersonas(id);
     return NextResponse.json({ personas });
   } catch (err) {
@@ -28,7 +31,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const user = await requireUser();
     const { id } = IdParam.parse(await params);
+    await assertBriefAccess(id, user.id);
     const brief = await getBrief(id);
     if (!brief) throw new HttpError(404, "Brief not found.");
 

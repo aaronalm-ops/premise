@@ -1071,8 +1071,93 @@ What we shipped: the middle path. Public artefact, gated resource via *obscurity
 
 ---
 
+## D-031 — Multi-format ingestion: PDF, DOCX, plain text/markdown, and URL fetch
+
+### The story
+
+A researcher's "corpus" isn't a folder of `.txt` files. It's:
+- 80 PDFs (client decks, research reports, syndicated studies)
+- 40 DOCX (transcripts, draft reports, internal memos)
+- A handful of markdown notes
+- 200 web pages (industry articles, public reports, competitor blog posts) you want grounded in too
+
+If Premise can only ingest `.txt` and `.md`, the real corpus stays outside the product. Researchers convert every file by hand. That kills adoption — friction beats value.
+
+### What we built
+
+Three formats + URL fetching, all behind a single Documents artefact in the canvas:
+
+- **PDF** via `pdf-parse` — handles most research PDFs (text-based, not scanned). Image-only PDFs degrade gracefully ("file produced almost no extractable text").
+- **DOCX** via `mammoth` — Word reports, transcripts, briefs. Mature library; handles tables, lists, embedded styles.
+- **Plain text + markdown** — already supported, now also via UI.
+- **URL fetching with Mozilla Readability** — paste a URL; we fetch with a 10s timeout and 5MB cap, run Firefox's Reader View algorithm to strip nav/ads/cookie-banners, and ingest the clean article body. Perfect for online research articles, public reports, blog posts, competitor pages.
+
+The `Documents` artefact lives at the **top** of the artefacts pane — corpus is the foundation everything else builds on. Upload button + URL paste-in-line; live progress feedback; chunk count + token cost shown after each ingest.
+
+### What's deliberately not built
+
+- **Scanned-PDF OCR** — Tesseract or Vision APIs could do it, but adds a dep + cost + reliability concerns. Defer until a researcher actually hits this.
+- **Sync from Google Drive / Notion / Dropbox** — OAuth + delta sync is a substantial build. Defer to commercial phase.
+- **Bulk folder upload via the UI** — single-file at a time for now. CLI still supports bulk via `npm run ingest`.
+
+### The PM lesson
+
+**The cheapest way to make an AI product useful is to meet users where their data lives.** A model is only as good as the corpus it can read. Spending engineering time on better prompts when users can't ingest their actual research is solving the wrong problem.
+
+For an AI PM: **ingestion surfaces are user-research surfaces**. The friction users hit getting their data in is a direct measure of how often you'll see that user again. PDF + DOCX + URL covers ~95% of insights-research source formats.
+
+### What would break if we got it wrong
+
+Stay text-only: researchers convert every file manually. The "drop a doc in" promise is hollow. They use Premise for the demo and never come back.
+
+---
+
+## D-032 — Authentication: Supabase magic links, per-user project ownership, orphan-claim on first sign-in
+
+### The story
+
+Until now, Premise had no login. Anyone with the URL saw every project. Defensible for a portfolio piece (one user, semi-private URL) but hostile to anything resembling commercial use — even letting one beta tester in means they see your client work too.
+
+We added authentication. Not full multi-tenant SaaS auth (orgs, billing, roles, SSO — that's commercial-phase) but the right *minimum*: each user has their own projects, sees only their own work, signs in with email magic-links.
+
+### What we built
+
+- **Supabase Auth** — already provisioned in every Supabase project; we just turned it on. Magic-link only, no passwords. Sign in by entering email, get a one-time link, click, done. Zero password management on our side.
+- **`@supabase/ssr`** — Supabase's official SSR helpers for Next.js. Three pieces: server client (route handlers / server components), browser client (client components), middleware (refresh session cookie on every request).
+- **`projects.owner_id`** — new column, FK to `auth.users`. New projects always set `owner_id`. Old projects get `NULL` (orphans).
+- **`/login` page** — clean magic-link form using the Premise mark. "We sent a link" confirmation state; expired-link errors surface inline.
+- **`/auth/callback` route** — exchanges the OTP code for a session, sets the cookie, redirects into the app. Also calls `claim_orphan_projects(user_id)` — see below.
+- **`/auth/signout` route** — POST endpoint, single button in the account menu.
+- **AuthGate** in `src/app/page.tsx` — server component reads `getCurrentUser()`. If no user, `redirect("/login")`. Server-side, no flash.
+- **API protection**: every API route now starts with `const user = await requireUser();` (throws 401 if no session) and `await assertProjectAccess(projectId, user.id);` before touching project-scoped data. The helper returns 404 (not 403) on mismatch, deliberately not revealing the existence of other users' projects.
+- **`claim_orphan_projects` Postgres function** — when the *first* user signs in, all NULL-owner projects get claimed to them in one atomic UPDATE. The function won't run successfully if any project already has a non-null owner — so subsequent sign-ins get nothing claimed. This means Aaron's existing pre-auth work survives his first sign-in.
+
+### Server-side queries still use the service role
+
+A deliberate architectural choice. We *could* have switched every Supabase query to use the user's JWT (which would respect RLS policies). Instead, server-side queries continue using the **service role key** (which bypasses RLS), and we enforce ownership in application code via `requireUser()` + `assertProjectAccess()`.
+
+Tradeoffs:
+- **Pro**: simpler. Existing query code didn't change. Faster (no per-request JWT verification on every Supabase query). Works the same way the LLM pipelines and ingestion flows already worked.
+- **Con**: app code is the only barrier to cross-user access. A bug in `assertProjectAccess` would be a privacy hole. Mitigated by: every API route is small and follows the same pattern; the eventual commercial-phase migration to true RLS-everywhere isn't blocked by this choice.
+
+For commercial deploy, we'll graduate to RLS-everywhere with the user's JWT. For portfolio, app-layer enforcement is the right level of rigour.
+
+### The PM lesson
+
+**Auth is a feature with a trapdoor.** It feels mechanical (just add a login screen) but it cascades through every surface — every API route, every DB query, every UI state. The right move is to ship the *minimum* version that solves the actual problem (per-user data isolation) and explicitly defer the parts that aren't load-bearing yet (orgs, roles, SSO, password resets, social login). Spec the minimum; ship the minimum; expand only when commercial pressure demands it.
+
+### What would break if we got it wrong
+
+No auth: every visitor sees every project. The product becomes unsharable to anyone you don't trust completely.
+
+Full RLS-everywhere as v1: weeks of refactoring before we can ship. The minimum hits the same trust property faster.
+
+Skipping `claim_orphan_projects`: Aaron signs in and his existing projects vanish from his view.
+
+---
+
 ## How to use this doc going forward
 
-- **Every new decision gets a numbered entry below.** D-031, D-032, etc.
+- **Every new decision gets a numbered entry below.** D-033, D-034, etc.
 - **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
 - **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.

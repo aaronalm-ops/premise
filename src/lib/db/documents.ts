@@ -4,6 +4,19 @@ import { chunkText } from "@/lib/rag/chunking";
 import { embed } from "@/lib/rag/voyage";
 import type { Confidentiality, DocumentRecord } from "@/lib/rag/types";
 
+export async function listDocuments(
+  projectId: string,
+): Promise<DocumentRecord[]> {
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`listDocuments: ${error.message}`);
+  return (data ?? []) as DocumentRecord[];
+}
+
 export type IngestInput = {
   projectId: string;
   title: string;

@@ -5,6 +5,8 @@ import {
   exportQuestionnaire,
   type ExportFormat,
 } from "@/lib/exporters/questionnaire";
+import { assertBriefAccess, requireUser } from "@/lib/auth/server";
+import { safeError } from "@/lib/api/safe-error";
 
 const VALID_FORMATS: ExportFormat[] = ["markdown", "qualtrics", "plaintext"];
 
@@ -12,21 +14,23 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const url = new URL(req.url);
-  const formatParam = url.searchParams.get("format") ?? "markdown";
-  const download = url.searchParams.get("download") === "1";
-
-  if (!VALID_FORMATS.includes(formatParam as ExportFormat)) {
-    return new Response(
-      JSON.stringify({
-        error: `format must be one of: ${VALID_FORMATS.join(", ")}`,
-      }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
   try {
+    const user = await requireUser();
+    const { id } = await params;
+    const url = new URL(req.url);
+    const formatParam = url.searchParams.get("format") ?? "markdown";
+    const download = url.searchParams.get("download") === "1";
+
+    if (!VALID_FORMATS.includes(formatParam as ExportFormat)) {
+      return new Response(
+        JSON.stringify({
+          error: `format must be one of: ${VALID_FORMATS.join(", ")}`,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    await assertBriefAccess(id, user.id);
     const brief = await getBrief(id);
     if (!brief) {
       return new Response(JSON.stringify({ error: "brief not found" }), {
@@ -51,9 +55,6 @@ export async function GET(
 
     return new Response(content, { status: 200, headers });
   } catch (err) {
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return safeError(err);
   }
 }

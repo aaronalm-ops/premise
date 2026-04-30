@@ -8,9 +8,32 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createProject } from "@/lib/db/projects";
 import { ingestDocument } from "@/lib/db/documents";
+import { getSupabaseServer } from "@/lib/db/supabase";
+import type { Confidentiality, Project } from "@/lib/rag/types";
 import type { EvalConfig } from "./types";
+
+// Eval projects are intentionally orphan (NULL owner_id). They're not user
+// data; they're test fixtures. Using a service-role insert that bypasses
+// owner_id keeps eval setup independent of the auth flow.
+async function createOrphanProject(input: {
+  name: string;
+  description: string | null;
+  confidentiality: Confidentiality;
+}): Promise<Project> {
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from("projects")
+    .insert({
+      name: input.name,
+      description: input.description,
+      confidentiality: input.confidentiality,
+    })
+    .select("*")
+    .single();
+  if (error) throw new Error(`createOrphanProject: ${error.message}`);
+  return data as Project;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -43,12 +66,12 @@ export async function setup(): Promise<EvalConfig> {
 
   console.log("First-time eval setup: creating projects and ingesting fixtures...");
 
-  const projectA = await createProject({
+  const projectA = await createOrphanProject({
     name: "premise-evals-A (do not use for real work)",
     description: "Eval harness — public corpus (fixtures 01-03).",
     confidentiality: "public",
   });
-  const projectB = await createProject({
+  const projectB = await createOrphanProject({
     name: "premise-evals-B (do not use for real work)",
     description: "Eval harness — confidential corpus (fixture 04). Used to verify cross-project isolation.",
     confidentiality: "client-confidential",

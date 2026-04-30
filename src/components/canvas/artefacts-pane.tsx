@@ -8,6 +8,7 @@ import type {
   QuestionWithVariants,
 } from "@/lib/rag/types";
 import { BriefArtefact } from "./brief-artefact";
+import { DocumentsArtefact } from "./documents-artefact";
 import { HypothesesArtefact } from "./hypotheses-artefact";
 import { PersonasArtefact } from "./personas-artefact";
 import { QuestionsArtefact } from "./questions-artefact";
@@ -87,6 +88,7 @@ export function ArtefactsPane({ projectId }: Props) {
 
         {projectId && (
           <>
+            <DocumentsArtefact projectId={projectId} />
             <BriefArtefact
               projectId={projectId}
               brief={brief}
