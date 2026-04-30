@@ -2,6 +2,8 @@
 
 > Every research project starts with one.
 
+[github.com/aaronalm-ops/premise](https://github.com/aaronalm-ops/premise)
+
 An AI co-pilot for market and consumer insights researchers. It walks you through the full research lifecycle: **brief → hypotheses → questionnaire (with persona recommendations & question variants) → data analysis → story angles**, and grounds every step in your historical research via strict, citation-only RAG.
 
 > **Status:** Phase 0 (foundations). Stack chosen, scaffold not yet built. See [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -72,6 +74,87 @@ Returns JSON with `ok: true` once all five env vars are set. This is your "is ev
 - `npm run dev` — dev server with Turbopack
 - `npm run build` — production build (catches type errors)
 - `npm run typecheck` — type check without building
+- `npm run create-project -- "Name" [confidentiality] [description]` — create a project from CLI
+- `npm run ingest -- <projectId> <filePath> [title]` — ingest a `.txt` or `.md` file into a project's corpus
+
+## Phase 1 — Strict-mode RAG (current)
+
+The strict-mode RAG pipeline is the heart of Premise. It's wired and ready — three setup steps, then you can drop a doc in and ask a question.
+
+### Step 1 — Apply the database schema
+
+In your Supabase project: **SQL Editor → New Query → paste the contents of [`supabase/migrations/0001_initial_schema.sql`](supabase/migrations/0001_initial_schema.sql) → Run**.
+
+This creates the `projects`, `documents`, `chunks` tables, the HNSW index for fast vector search, and the `match_chunks` retrieval function. It's idempotent — safe to re-run.
+
+### Step 2 — Create a project
+
+```bash
+npm run create-project -- "Pilot project" client-confidential "Test corpus for Phase 1 dogfooding"
+```
+
+You'll get back a project id (UUID). Copy it.
+
+### Step 3 — Ingest a document
+
+Drop a `.txt` or `.md` file somewhere on disk (any research doc, a prior transcript, a deck transcribed to text — whatever you have handy for testing). Then:
+
+```bash
+npm run ingest -- <projectId> ./path/to/your-file.txt "Optional title"
+```
+
+You'll see chunk count, embedding tokens used, and the estimated cost (usually well under a cent for a typical doc).
+
+### Step 4 — Ask a question
+
+Start the dev server (`npm run dev`), then in another terminal:
+
+```bash
+curl -s -X POST http://localhost:3000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"projectId":"<projectId>","question":"What does the corpus say about X?"}' | jq
+```
+
+You'll get back a JSON response with shape:
+```json
+{
+  "question": "...",
+  "answer": {
+    "claims": [{ "text": "...", "citation_ids": ["..."], "confidence": "high" }],
+    "unanswered_aspects": ["..."]
+  },
+  "retrieved_chunks": [...],
+  "used_chunk_ids": [...]
+}
+```
+
+If the corpus doesn't support an answer, `claims` will be empty and `unanswered_aspects` will explain what's missing. **This is the correct behaviour** — it's how you know the strict-abstention guarantee is real (D-010).
+
+### What runs under the hood
+
+```
+question
+   │
+   ▼
+[Voyage] embed query   (input_type: "query")
+   │
+   ▼
+[Postgres] match_chunks(top-12, project_id)   (D-016 — SQL-bounded confidentiality)
+   │
+   ▼
+[Haiku] rerank → top-5 actually relevant
+   │
+   ▼
+[Sonnet] generate with forced tool_use schema (D-010)
+   │   schema enforces: every claim has citation_ids
+   ▼
+[Haiku] verify each claim against its cited chunks
+   │   unsupported claims dropped (not rewritten)
+   ▼
+{ claims, unanswered_aspects, retrieved_chunks }
+```
+
+See [docs/DECISIONS.md](docs/DECISIONS.md) D-001 through D-016 for plain-language rationale on every choice above.
 
 ## Repo layout (planned)
 

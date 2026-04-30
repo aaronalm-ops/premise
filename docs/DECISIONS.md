@@ -524,8 +524,116 @@ Pick a generic descriptive name (e.g. "InsightAI"): the product disappears into 
 
 ---
 
+## D-015 — Chunking by paragraph (200–500 tokens), not by fixed token windows
+
+### The story
+
+You're commissioning verbatim coding for 80 transcripts. Two ways to chop them up for the coder:
+
+- **Option A**: Cut every 30 lines, regardless of where you are in the conversation. Speed is consistent. Half your snippets begin mid-sentence and end mid-thought. The coder loses the thread.
+- **Option B**: Cut at natural beats — speaker turns, topic shifts, paragraph boundaries. Snippets are uneven in length but each is a complete idea. The coder reads what was actually said.
+
+Option B is how human researchers handle text. Option A is how lazy software handles text. Premise does Option B.
+
+Specifically: we split source text on **blank lines (paragraph boundaries)**, then pack adjacent paragraphs together until we hit ~1,200 characters (~300 tokens), capping at 2,000 chars / ~500 tokens. Single oversized paragraphs get split by sentence as a fallback.
+
+### Why these numbers
+
+- **Lower bound (~200 tokens)**: smaller chunks lose the surrounding context, and embedding similarity becomes noisy — too many false matches on superficial word overlap.
+- **Upper bound (~500 tokens)**: larger chunks blur meaning. An embedding is a single fingerprint per chunk; if you stuff three different ideas in one chunk, the fingerprint averages them and matches none of them precisely.
+- **Paragraphs as the unit**: researchers write one idea per paragraph. Following the writer's structure usually beats imposing your own.
+
+### The PM lesson
+
+**Boring infrastructure decisions compound.** Chunking is the kind of choice that feels invisible — until you're three months in and your retrieval is mysteriously bad and you can't tell whether it's the embeddings, the reranker, the prompt, or the chunks themselves. By picking a sensible chunking strategy *and* writing it down, you've removed one whole category of "is it this?" debugging from your future life.
+
+The general lesson: in AI products, **the data preparation is often the product**. Most "the model isn't smart enough" problems are actually "the chunks weren't built right" problems. Spend the decision-budget here.
+
+### What would break if we got it wrong
+
+Fixed 512-token windows: chunks regularly start mid-paragraph and end mid-sentence. Retrieval pulls back orphaned fragments. The model gets context that lacks the antecedent it needs to make sense of the chunk. Citations look right but the chunks don't actually say what the model thinks they say. Verifier drops everything. User sees "the corpus does not address this" on questions the corpus *does* address.
+
+---
+
+## D-016 — Confidentiality enforced at the SQL boundary, not in application code
+
+### The story
+
+Imagine a research agency where every project room has its own physical door, and the lock is on the doorframe. Every time someone wants to enter Room A, they unlock the door — easy to forget, easy to leave open, easy to walk past with the wrong file.
+
+Now imagine a different agency where the lock is on the *files themselves* — every file is physically welded to its room. You literally cannot remove Client A's file from Room A and accidentally drop it on Client B's desk. The protection isn't a procedure; it's a property of the file.
+
+Premise does the second thing. The retrieval function — `match_chunks` in [supabase/migrations/0001_initial_schema.sql](../supabase/migrations/0001_initial_schema.sql) — takes a `project_id` parameter and filters chunks by it inside the SQL query. Every retrieval is *physically scoped* to one project. Even if the application code had a bug and asked for "all chunks matching this question," the database would still only return chunks from the project it was told to look in.
+
+### Why this matters
+
+Confidentiality is the table-stakes B2B research feature most "AI for research" tools get wrong. The temptation is to filter at the application layer — "fetch everything, then drop chunks from other projects." That works until:
+
+- You forget the filter on one code path.
+- A junior contributor writes a new endpoint without it.
+- The filter has an off-by-one bug.
+- A library upgrade changes the semantics quietly.
+
+Each of those is a confidentiality incident. With SQL-boundary enforcement, none of those bugs can leak data — the SQL function physically cannot return out-of-scope rows.
+
+### The PM lesson
+
+**For guarantees you must keep, make them properties of the system, not properties of the code.** This is the same instinct as D-010 ("strict abstention via schema, not prompting"). When something has to be true 100% of the time, build it into the layer that runs always — the database, the schema, the gate — not the layer that humans edit and forget.
+
+For an AI PM specifically: when a user trust commitment is on the line ("we never mix client data," "we never fabricate stats"), look for structural enforcement first. Application-layer enforcement is fine for nice-to-haves; structural enforcement is for promises.
+
+### What would break if we got it wrong
+
+App-layer filtering only: works correctly 999 times out of 1,000. The 1,000th time, a chunk from Client A surfaces in Client B's research session. You discover this a week after a quarterly review at one of those clients. The product is dead, even though the feature itself is otherwise excellent.
+
+---
+
+## D-017 — Row Level Security on by default, even before we have users
+
+### The story
+
+A research agency archive room has two keys:
+
+- **The master key** — held by the head archivist (the Next.js server using the `service_role` key). Opens any cabinet, no questions asked. Trusted, never leaves the office.
+- **The visitor key** — handed to anyone who walks into the building (the `anon` key, literally embedded in browser-side code). Every visitor's browser can read this key.
+
+Without locks on the cabinets themselves, the visitor key reads everything. With locks (Row Level Security, "RLS"), each cabinet has rules — "only open for the visitor whose ID matches this file" — and the visitor key gets denied unless a rule allows it.
+
+The master key always bypasses the locks. That's by design — the head archivist needs to do their job.
+
+### What we did
+
+When we ran the Phase 1 schema migration, Supabase warned us that the new tables had no RLS. We turned RLS **ON** on all three tables (`projects`, `documents`, `chunks`) — with **no policies attached**.
+
+That has these effects:
+- **Server-side queries (master key) still work perfectly.** Every existing piece of Premise — `/api/ask`, `/api/projects`, the ingestion CLI — is unaffected.
+- **Browser-side queries (visitor key) are denied on everything**, because there are no policies that would allow access.
+- When we add auth in a later phase, we'll add policies like "a user can only see projects where `owner_id = auth.uid()`."
+
+### Why turn it on before we have any users to protect
+
+Today, Premise is single-user (Aaron). The visitor key isn't being used. So technically, RLS doesn't matter today.
+
+But:
+
+1. **Defaults are sticky.** "We'll add RLS later" is a reliable way to ship a database to production with the front door wide open. The right moment to set the safe default is when you're touching the schema, not when you're shipping a feature on a deadline.
+2. **It costs nothing to be on.** Server-side code works identically. We don't have any browser queries to break. We pay zero today and earn the safety guarantee for free.
+3. **It lines up with D-016's principle.** Confidentiality is the most important promise the product makes. Every layer of structural enforcement we add now is one less promise we have to remember to keep manually later.
+
+### The PM lesson
+
+**Set safe defaults before you have users to protect.** New PMs see security as something you "harden" before launch. Senior PMs see security as a *default state* — you're either on or off, and "off, planning to turn on later" is a sign you'll forget. Turn it on at the moment of creation; explicitly relax it where you've reasoned about why.
+
+The general lesson for AI products: **trust commitments compound from the schema upward.** A confidentiality promise made in marketing copy is worth nothing if the database doesn't enforce it. Strict abstention (D-010), SQL-bounded retrieval (D-016), RLS (D-017) — these are the same instinct expressed at three different layers.
+
+### What would break if we got it wrong
+
+Skip RLS now: in Phase 4 we add a "show recent projects" widget that queries Supabase directly from the browser using the anon key. The dev who writes it forgets to filter by owner. Suddenly any visitor of your site can list every project, every document, every chunk in your database. You discover this the day after you flip the repo to public. Trust gone.
+
+---
+
 ## How to use this doc going forward
 
-- **Every new decision gets a numbered entry below.** D-015, D-016, etc.
+- **Every new decision gets a numbered entry below.** D-018, D-019, etc.
 - **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
 - **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.
