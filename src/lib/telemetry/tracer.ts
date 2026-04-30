@@ -7,6 +7,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropic } from "@/lib/llm/anthropic";
 import { getSupabaseServer } from "@/lib/db/supabase";
 import { computeAnthropicCost, computeVoyageCost } from "./pricing";
+import { withRetry } from "@/lib/api/retry";
 
 export type TraceContext = {
   project_id?: string | null;
@@ -23,7 +24,15 @@ export async function tracedMessagesCreate(
 ): Promise<Message> {
   const start = Date.now();
   const client = getAnthropic();
-  const response = (await client.messages.create(params)) as Message;
+  const response = await withRetry(
+    () => client.messages.create(params) as Promise<Message>,
+    {
+      onRetry: (attempt, err) =>
+        console.warn(
+          `Anthropic retry ${attempt} (${context.endpoint}): ${(err as Error).message}`,
+        ),
+    },
+  );
   const duration_ms = Date.now() - start;
 
   void recordAnthropic(response, params.model, context, duration_ms).catch(

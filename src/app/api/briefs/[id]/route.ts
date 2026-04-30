@@ -1,24 +1,21 @@
 import { NextResponse } from "next/server";
 import { getBrief, updateBrief } from "@/lib/db/briefs";
 import { listHypotheses } from "@/lib/db/hypotheses";
+import { IdParam, UpdateBriefBody } from "@/lib/validation/schemas";
+import { HttpError, safeError } from "@/lib/api/safe-error";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params;
+    const { id } = IdParam.parse(await params);
     const brief = await getBrief(id);
-    if (!brief) {
-      return NextResponse.json({ error: "brief not found" }, { status: 404 });
-    }
+    if (!brief) throw new HttpError(404, "Brief not found.");
     const hypotheses = await listHypotheses(id);
     return NextResponse.json({ brief, hypotheses });
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 },
-    );
+    return safeError(err);
   }
 }
 
@@ -27,11 +24,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params;
-    const body = (await req.json()) as {
-      title?: string | null;
-      content?: string;
-    };
+    const { id } = IdParam.parse(await params);
+    const body = UpdateBriefBody.parse(await req.json());
     const brief = await updateBrief({
       id,
       title: body.title,
@@ -39,9 +33,6 @@ export async function PATCH(
     });
     return NextResponse.json({ brief });
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 },
-    );
+    return safeError(err);
   }
 }

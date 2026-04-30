@@ -1,45 +1,27 @@
 import { NextResponse } from "next/server";
 import { listBriefs, createBrief } from "@/lib/db/briefs";
+import { CreateBriefBody } from "@/lib/validation/schemas";
+import { safeError, HttpError } from "@/lib/api/safe-error";
+import { z } from "zod";
+
+const ListQuery = z.object({ projectId: z.string().uuid() });
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const projectId = url.searchParams.get("projectId");
-    if (!projectId) {
-      return NextResponse.json(
-        { error: "projectId query param is required" },
-        { status: 400 },
-      );
-    }
+    const { projectId } = ListQuery.parse({
+      projectId: url.searchParams.get("projectId") ?? undefined,
+    });
     const briefs = await listBriefs(projectId);
     return NextResponse.json({ briefs });
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 },
-    );
+    return safeError(err);
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      projectId?: string;
-      title?: string | null;
-      content?: string;
-    };
-    if (!body.projectId || typeof body.projectId !== "string") {
-      return NextResponse.json(
-        { error: "projectId is required" },
-        { status: 400 },
-      );
-    }
-    if (!body.content || typeof body.content !== "string") {
-      return NextResponse.json(
-        { error: "content is required" },
-        { status: 400 },
-      );
-    }
+    const body = CreateBriefBody.parse(await req.json());
     const brief = await createBrief({
       projectId: body.projectId,
       title: body.title ?? null,
@@ -47,9 +29,6 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ brief }, { status: 201 });
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 },
-    );
+    return safeError(err);
   }
 }

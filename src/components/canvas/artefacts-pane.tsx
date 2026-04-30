@@ -78,7 +78,7 @@ export function ArtefactsPane({ projectId }: Props) {
         </h2>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-6">
+      <div className="premise-scroll min-h-0 flex-1 space-y-6 overflow-y-scroll px-6 py-6">
         {!projectId && (
           <div className="rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-muted)] px-4 py-6 text-center text-sm text-[var(--color-muted-foreground)]">
             Pick a project from the top right to start.

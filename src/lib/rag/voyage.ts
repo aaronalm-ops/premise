@@ -3,6 +3,7 @@
 
 import { requireEnv } from "@/lib/env";
 import { recordVoyage, type TraceContext } from "@/lib/telemetry/tracer";
+import { withRetry } from "@/lib/api/retry";
 
 const VOYAGE_URL = "https://api.voyageai.com/v1/embeddings";
 const MODEL = "voyage-3";
@@ -21,6 +22,15 @@ export type EmbedResult = {
   totalTokens: number;
 };
 
+class VoyageError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function embed(
   inputs: string[],
   inputType: VoyageInputType,
@@ -31,23 +41,36 @@ export async function embed(
   }
 
   const start = Date.now();
-  const res = await fetch(VOYAGE_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${requireEnv("VOYAGE_API_KEY")}`,
-      "Content-Type": "application/json",
+  const res = await withRetry(
+    async () => {
+      const r = await fetch(VOYAGE_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${requireEnv("VOYAGE_API_KEY")}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          input: inputs,
+          model: MODEL,
+          input_type: inputType,
+        }),
+      });
+      if (!r.ok) {
+        const body = await r.text();
+        throw new VoyageError(
+          r.status,
+          `Voyage embedding failed (${r.status}): ${body}`,
+        );
+      }
+      return r;
     },
-    body: JSON.stringify({
-      input: inputs,
-      model: MODEL,
-      input_type: inputType,
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Voyage embedding failed (${res.status}): ${body}`);
-  }
+    {
+      onRetry: (attempt, err) =>
+        console.warn(
+          `Voyage retry ${attempt}: ${(err as Error).message}`,
+        ),
+    },
+  );
 
   const json = (await res.json()) as VoyageResponse;
   const sorted = [...json.data].sort((a, b) => a.index - b.index);

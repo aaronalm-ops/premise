@@ -58,7 +58,7 @@ export function ChatPane({ projectId }: Props) {
         </h2>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-6">
+      <div className="premise-scroll min-h-0 flex-1 space-y-4 overflow-y-scroll px-6 py-6">
         {!result && !loading && !error && (
           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] px-4 py-3 text-sm text-[var(--color-muted-foreground)]">
             Ask any question. Premise will retrieve from your project&apos;s

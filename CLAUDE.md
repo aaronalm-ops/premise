@@ -83,10 +83,16 @@ curl -s -X POST localhost:3000/api/ask -H 'Content-Type: application/json' \
 - **Eval harness shipped**: `evals/` directory with 6 probe types (golden-qa, abstention, hallucination, hypothesis-quality, persona-quality, confidentiality), 20 probes, fixtures, dedicated test projects, CLI (`npm run eval`). Gates every prompt change. D-020.
 - **Tier 1 of the Audit-#1 build queue shipped**:
   - **Prompt caching** (D-021) — every generation call uses Anthropic `cache_control`. Closes L-1.
-  - **Survey export** (D-022) — markdown / Qualtrics / plaintext. Buttons in Questionnaire artefact, endpoint at `/api/briefs/[id]/export`. Closes R-4 / U-3.
-  - **Cost telemetry** (D-023) — `api_calls` table, `tracedMessagesCreate` + `recordVoyage` helpers, `/api/projects/[id]/costs` rollup, live cost badge in canvas header. Closes L-7 / P-3.
-  - **Edit affordance** (D-024) — inline edit on hypothesis statement / expected_direction / confirmation_criteria, and on each question variant's statement. Closes U-4.
-- **Next**: Tier 2 of the audit queue — engineering hygiene (project creation in UI, retry logic, DB transactions, idempotency, error message safety, Zod validation). Or move to Phase 4 (analysis). Aaron's call.
+  - **Survey export** (D-022) — markdown / Qualtrics / plaintext. Closes R-4 / U-3.
+  - **Cost telemetry** (D-023) — `api_calls` table, traced wrappers, live cost badge. Closes L-7 / P-3.
+  - **Edit affordance** (D-024) — inline edit on hypothesis + variant statements. Closes U-4.
+- **Tier 2 of the Audit-#1 build queue shipped**:
+  - **Zod validation + safe-error** (D-025) — every API route validates input with Zod and sanitises errors before responding. Closes D-4, D-5, D-6.
+  - **Atomic generation** (D-026) — `replace_proposed_*` Postgres functions wrap delete+insert in a single transaction. Closes D-3.
+  - **Retry logic** (D-027) — `withRetry` wraps every Anthropic + Voyage call; exponential backoff with jitter on 429/5xx/network errors. Closes L-3.
+  - **Generation locks** (D-028) — `generation_locks` table + `withGenerationLock` helper applied to hypotheses/personas/questions endpoints. Closes L-6.
+  - **Project creation in UI** (D-029) — `+ New` button + modal in the project switcher. Closes U-6.
+- **Next**: choose between (a) Phase 4 (analysis — quant + qual ingestion, hypothesis-by-hypothesis verdicts); (b) Tier 3 UX polish (chat persistence, loading-state pipeline, bulk operations, etc.); (c) flip the repo public — Premise is now audit-defensible, operable, and cost-honest.
 
 ## What NOT to do
 

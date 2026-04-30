@@ -39,6 +39,9 @@ export async function listQuestionsWithVariants(
   }));
 }
 
+// Atomic replace via the replace_proposed_questions Postgres function (D-026).
+// Inserts questions + variants in a single DB transaction; partial failure
+// rolls everything back including the prior delete.
 export async function replaceProposedQuestions(input: {
   briefId: string;
   projectId: string;
@@ -46,66 +49,28 @@ export async function replaceProposedQuestions(input: {
 }): Promise<QuestionWithVariants[]> {
   const supabase = getSupabaseServer();
 
-  await supabase
-    .from("questions")
-    .delete()
-    .eq("brief_id", input.briefId)
-    .eq("status", "proposed");
-
-  const { data: existing } = await supabase
-    .from("questions")
-    .select("ordinal")
-    .eq("brief_id", input.briefId)
-    .order("ordinal", { ascending: false })
-    .limit(1);
-
-  const startOrdinal = (existing?.[0]?.ordinal ?? -1) + 1;
-
-  if (input.drafts.length === 0) return [];
-
-  const out: QuestionWithVariants[] = [];
-
-  for (let i = 0; i < input.drafts.length; i++) {
-    const d = input.drafts[i];
-    const { data: question, error: qErr } = await supabase
+  if (input.drafts.length === 0) {
+    await supabase
       .from("questions")
-      .insert({
-        project_id: input.projectId,
-        brief_id: input.briefId,
-        hypothesis_id: d.hypothesis_id,
-        ordinal: startOrdinal + i,
-        target_construct: d.target_construct,
-        rationale: d.rationale,
-        status: "proposed" as const,
-      })
-      .select("*")
-      .single();
-    if (qErr || !question) throw new Error(`insertQuestion: ${qErr?.message}`);
-
-    const variantRows = d.variants.map((v, vi) => ({
-      question_id: question.id,
-      ordinal: vi,
-      variant_type: v.variant_type,
-      statement: v.statement,
-      response_format: v.response_format,
-      response_options: v.response_options,
-      what_it_elicits: v.what_it_elicits,
-      caveat: v.caveat,
-    }));
-
-    const { data: insertedVariants, error: vErr } = await supabase
-      .from("question_variants")
-      .insert(variantRows)
-      .select("*");
-    if (vErr) throw new Error(`insertVariants: ${vErr.message}`);
-
-    out.push({
-      ...(question as Question),
-      variants: (insertedVariants ?? []) as QuestionVariant[],
-    });
+      .delete()
+      .eq("brief_id", input.briefId)
+      .eq("status", "proposed");
+    return [];
   }
 
-  return out;
+  const { error: rpcErr } = await supabase.rpc("replace_proposed_questions", {
+    p_brief_id: input.briefId,
+    p_project_id: input.projectId,
+    p_drafts: input.drafts.map((d) => ({
+      ...d,
+      hypothesis_id: d.hypothesis_id ?? "",
+    })),
+  });
+  if (rpcErr) throw new Error(`replaceProposedQuestions: ${rpcErr.message}`);
+
+  return listQuestionsWithVariants(input.briefId).then((all) =>
+    all.filter((q) => q.status === "proposed"),
+  );
 }
 
 export async function updateQuestion(input: {

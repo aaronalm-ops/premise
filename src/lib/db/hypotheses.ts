@@ -18,6 +18,9 @@ export async function listHypotheses(briefId: string): Promise<Hypothesis[]> {
 
 // Replaces all proposed hypotheses for a brief. Accepted/rejected are kept,
 // preserving the researcher's prior decisions even when they regenerate.
+//
+// Atomic via a Postgres function (D-026): if the insert fails, the prior
+// delete is rolled back and the user keeps their existing proposed rows.
 export async function replaceProposedHypotheses(input: {
   briefId: string;
   projectId: string;
@@ -25,46 +28,28 @@ export async function replaceProposedHypotheses(input: {
 }): Promise<Hypothesis[]> {
   const supabase = getSupabaseServer();
 
-  await supabase
-    .from("hypotheses")
-    .delete()
-    .eq("brief_id", input.briefId)
-    .eq("status", "proposed");
-
-  const { data: existing } = await supabase
-    .from("hypotheses")
-    .select("ordinal")
-    .eq("brief_id", input.briefId)
-    .order("ordinal", { ascending: false })
-    .limit(1);
-
-  const startOrdinal = (existing?.[0]?.ordinal ?? -1) + 1;
-
-  if (input.drafts.length === 0) return [];
+  if (input.drafts.length === 0) {
+    await supabase
+      .from("hypotheses")
+      .delete()
+      .eq("brief_id", input.briefId)
+      .eq("status", "proposed");
+    return [];
+  }
 
   const sorted = [...input.drafts].sort((a, b) => b.priority - a.priority);
 
-  const rows = sorted.map((d, i) => ({
-    brief_id: input.briefId,
-    project_id: input.projectId,
-    ordinal: startOrdinal + i,
-    statement: d.statement,
-    assumptions: d.assumptions,
-    expected_direction: d.expected_direction,
-    confirmation_criteria: d.confirmation_criteria,
-    supporting_chunk_ids: d.supporting_chunk_ids,
-    contradicting_chunk_ids: d.contradicting_chunk_ids,
-    priority: d.priority,
-    status: "proposed" as const,
-  }));
+  const { error: rpcErr } = await supabase.rpc("replace_proposed_hypotheses", {
+    p_brief_id: input.briefId,
+    p_project_id: input.projectId,
+    p_drafts: sorted,
+  });
+  if (rpcErr)
+    throw new Error(`replaceProposedHypotheses: ${rpcErr.message}`);
 
-  const { data, error } = await supabase
-    .from("hypotheses")
-    .insert(rows)
-    .select("*");
-  if (error) throw new Error(`replaceProposedHypotheses: ${error.message}`);
-
-  return (data ?? []) as Hypothesis[];
+  return listHypotheses(input.briefId).then((all) =>
+    all.filter((h) => h.status === "proposed"),
+  );
 }
 
 export async function updateHypothesis(input: {

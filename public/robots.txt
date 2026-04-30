@@ -1,0 +1,6 @@
+# Premise — portfolio deployment
+# We deliberately block search-engine indexing on the live demo URL.
+# The repo is public; the live demo is shared on demand via personal links
+# to keep cost-burn risk bounded while there's no auth.
+User-agent: *
+Disallow: /

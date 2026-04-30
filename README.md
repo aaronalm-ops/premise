@@ -177,6 +177,49 @@ Reload the dev server, pick your project from the dropdown. The right pane now h
 
 Every hypothesis must cite at least one supporting OR contradicting chunk from the corpus — the LLM tool_use schema rejects empty citation lists. Pure speculation cannot reach the database. See [D-018](docs/DECISIONS.md#d-018) for why this matters.
 
+## Deploying to Vercel (production)
+
+Premise is built to deploy to Vercel free tier with zero changes. The repo is public; the live URL is shared on a per-contact basis (no public broadcast — see [D-030](docs/DECISIONS.md) for the cost-burn rationale).
+
+### Step 1 — Apply all schema migrations to Supabase
+
+In Supabase SQL Editor, run each of these in order if you haven't already:
+
+- `supabase/migrations/0001_initial_schema.sql`
+- `supabase/migrations/0002_phase2_briefs_hypotheses.sql`
+- `supabase/migrations/0003_phase3_personas_questions.sql`
+- `supabase/migrations/0004_phase3_5_telemetry.sql`
+- `supabase/migrations/0005_phase4_atomic_locks.sql`
+
+Each is idempotent (safe to re-run). Click **Run and enable RLS** on the prompts.
+
+### Step 2 — Deploy via Vercel
+
+1. Go to https://vercel.com and sign up with GitHub (or log in).
+2. **New Project** → import `aaronalm-ops/premise`.
+3. Framework preset auto-detects as **Next.js** — accept defaults.
+4. **Environment Variables** — paste the same 5 keys from your `.env.local`:
+   - `ANTHROPIC_API_KEY`
+   - `VOYAGE_API_KEY`
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+5. **Deploy**.
+
+~90 seconds later you have a URL like `premise-xxxx.vercel.app`. The cost-protection layers ship with the deploy:
+- `public/robots.txt` blocks search-engine crawling.
+- Every API call is validated (Zod) and error-sanitised (D-025).
+- Generation endpoints are locked against double-clicks (D-028).
+- Every Anthropic + Voyage call records cost in `api_calls` (D-023).
+
+### Step 3 — Smoke test
+
+Open the deployed URL. Hit `/api/health` first — should return `ok: true` with all 5 env vars `configured: true`. Then create a project from the UI, ingest a doc, ask a question. Watch the cost badge climb in real time.
+
+### Step 4 — Custom domain (optional)
+
+Vercel project settings → **Domains** → add a custom domain. Free tier supports one. A subdomain on your existing portfolio domain (e.g. `premise.aaronalm.com`) is the cleanest version.
+
 ## Phase 3 — Personas and questionnaires with variants
 
 The product-defining phase: the "options not answers" principle becomes a literal UI surface.

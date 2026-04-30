@@ -152,18 +152,18 @@ Each gap above gets a status: `open` / `in-progress` / `resolved` / `wont-fix`. 
 | R-6 — No sample size guidance | open | |
 | L-1 — Prompt caching not implemented | resolved | D-021 (Tier 1 — cache_control on every gen call) |
 | L-2 — No eval harness | resolved | D-020 (Phase 3.5) |
-| L-3 — No retry logic | open | |
+| L-3 — No retry logic | resolved | D-027 (Tier 2 — withRetry on Anthropic + Voyage) |
 | L-4 — Reranker parses free text | open | |
 | L-5 — Verifier N calls vs 1 batch | open | |
-| L-6 — No idempotency on generation | open | |
+| L-6 — No idempotency on generation | resolved | D-028 (Tier 2 — generation_locks + withGenerationLock) |
 | L-7 — No cost telemetry | resolved | D-023 (Tier 1 — api_calls + cost badge) |
 | L-8 — No prompt versioning | open | |
 | D-1 — Zero tests | partial | Eval harness covers behaviour regressions; no unit tests yet |
 | D-2 — Confidentiality untested | resolved | D-020 (confidentiality probes in eval harness) |
-| D-3 — No transactions | open | |
-| D-4 — Error messages leak | open | |
-| D-5 — Tool_use cast unvalidated | open | |
-| D-6 — No request validation library | open | |
+| D-3 — No transactions | resolved | D-026 (Tier 2 — atomic replace_proposed_* RPC functions) |
+| D-4 — Error messages leak | resolved | D-025 (Tier 2 — safeError) |
+| D-5 — Tool_use cast unvalidated | partial | Schema-level filtering still in place; full Zod-on-output deferred |
+| D-6 — No request validation library | resolved | D-025 (Tier 2 — Zod schemas on every route) |
 | D-7 — No streaming | open | |
 | D-8 — No optimistic UI | open | |
 | U-1 — Chat history doesn't persist | open | |
@@ -171,7 +171,7 @@ Each gap above gets a status: `open` / `in-progress` / `resolved` / `wont-fix`. 
 | U-3 — No survey export / copy-to-clipboard | resolved | D-022 (Tier 1) |
 | U-4 — No edit affordance | resolved | D-024 (Tier 1 — hypothesis + variant inline edit) |
 | U-5 — Loading states no pipeline stage | open | |
-| U-6 — No project creation from UI | open | |
+| U-6 — No project creation from UI | resolved | D-029 (Tier 2 — + New button + modal) |
 | U-7 — No delete anywhere | open | |
 | U-8 — No confirmation on destructive regenerate | open | |
 | U-9 — Same color, different signals | open | |

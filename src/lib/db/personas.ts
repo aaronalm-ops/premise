@@ -16,6 +16,7 @@ export async function listPersonas(briefId: string): Promise<Persona[]> {
   return (data ?? []) as Persona[];
 }
 
+// Atomic replace via the replace_proposed_personas Postgres function (D-026).
 export async function replaceProposedPersonas(input: {
   briefId: string;
   projectId: string;
@@ -23,46 +24,27 @@ export async function replaceProposedPersonas(input: {
 }): Promise<Persona[]> {
   const supabase = getSupabaseServer();
 
-  await supabase
-    .from("personas")
-    .delete()
-    .eq("brief_id", input.briefId)
-    .eq("status", "proposed");
-
-  const { data: existing } = await supabase
-    .from("personas")
-    .select("ordinal")
-    .eq("brief_id", input.briefId)
-    .order("ordinal", { ascending: false })
-    .limit(1);
-
-  const startOrdinal = (existing?.[0]?.ordinal ?? -1) + 1;
-
-  if (input.drafts.length === 0) return [];
+  if (input.drafts.length === 0) {
+    await supabase
+      .from("personas")
+      .delete()
+      .eq("brief_id", input.briefId)
+      .eq("status", "proposed");
+    return [];
+  }
 
   const sorted = [...input.drafts].sort((a, b) => b.priority - a.priority);
 
-  const rows = sorted.map((d, i) => ({
-    project_id: input.projectId,
-    brief_id: input.briefId,
-    ordinal: startOrdinal + i,
-    name: d.name,
-    description: d.description,
-    demographic_profile: d.demographic_profile,
-    behavioural_profile: d.behavioural_profile,
-    assumptions: d.assumptions,
-    under_represents: d.under_represents,
-    supporting_chunk_ids: d.supporting_chunk_ids,
-    priority: d.priority,
-    status: "proposed" as const,
-  }));
+  const { error: rpcErr } = await supabase.rpc("replace_proposed_personas", {
+    p_brief_id: input.briefId,
+    p_project_id: input.projectId,
+    p_drafts: sorted,
+  });
+  if (rpcErr) throw new Error(`replaceProposedPersonas: ${rpcErr.message}`);
 
-  const { data, error } = await supabase
-    .from("personas")
-    .insert(rows)
-    .select("*");
-  if (error) throw new Error(`replaceProposedPersonas: ${error.message}`);
-  return (data ?? []) as Persona[];
+  return listPersonas(input.briefId).then((all) =>
+    all.filter((p) => p.status === "proposed"),
+  );
 }
 
 export async function updatePersona(input: {

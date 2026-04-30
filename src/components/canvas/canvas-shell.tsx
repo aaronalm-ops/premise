@@ -25,7 +25,7 @@ export function CanvasShell() {
         </div>
       </header>
 
-      <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] overflow-hidden">
+      <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] grid-rows-[minmax(0,1fr)] overflow-hidden">
         <ChatPane projectId={projectId} />
         <ArtefactsPane projectId={projectId} />
       </main>

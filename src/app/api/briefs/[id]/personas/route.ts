@@ -6,20 +6,20 @@ import {
   listPersonas,
   replaceProposedPersonas,
 } from "@/lib/db/personas";
+import { IdParam } from "@/lib/validation/schemas";
+import { HttpError, safeError } from "@/lib/api/safe-error";
+import { withGenerationLock } from "@/lib/api/with-lock";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params;
+    const { id } = IdParam.parse(await params);
     const personas = await listPersonas(id);
     return NextResponse.json({ personas });
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 },
-    );
+    return safeError(err);
   }
 }
 
@@ -28,44 +28,38 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params;
+    const { id } = IdParam.parse(await params);
     const brief = await getBrief(id);
-    if (!brief) {
-      return NextResponse.json({ error: "brief not found" }, { status: 404 });
-    }
+    if (!brief) throw new HttpError(404, "Brief not found.");
 
-    const allHypotheses = await listHypotheses(id);
-    const accepted = allHypotheses.filter((h) => h.status === "accepted");
+    return await withGenerationLock(`personas:${id}`, async () => {
+      const allHypotheses = await listHypotheses(id);
+      const accepted = allHypotheses.filter((h) => h.status === "accepted");
 
-    const { drafts, retrieved_chunks } = await generatePersonas({
-      briefContent: brief.content,
-      projectId: brief.project_id,
-      acceptedHypotheses: accepted,
-      briefId: brief.id,
+      const { drafts, retrieved_chunks } = await generatePersonas({
+        briefContent: brief.content,
+        projectId: brief.project_id,
+        acceptedHypotheses: accepted,
+        briefId: brief.id,
+      });
+
+      if (drafts.length === 0) {
+        throw new HttpError(
+          422,
+          "No personas could be generated. The corpus has no chunks relevant to this brief, or all draft personas lacked grounding citations.",
+          { retrieved_chunks },
+        );
+      }
+
+      const personas = await replaceProposedPersonas({
+        briefId: brief.id,
+        projectId: brief.project_id,
+        drafts,
+      });
+
+      return NextResponse.json({ personas, retrieved_chunks });
     });
-
-    if (drafts.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            "No personas could be generated. The corpus has no chunks relevant to this brief, or all draft personas lacked grounding citations.",
-          retrieved_chunks,
-        },
-        { status: 422 },
-      );
-    }
-
-    const personas = await replaceProposedPersonas({
-      briefId: brief.id,
-      projectId: brief.project_id,
-      drafts,
-    });
-
-    return NextResponse.json({ personas, retrieved_chunks });
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 },
-    );
+    return safeError(err);
   }
 }

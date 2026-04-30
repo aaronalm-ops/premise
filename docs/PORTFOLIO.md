@@ -4,6 +4,11 @@
 
 ---
 
+## Live deployment
+
+> **Repo (public):** [github.com/aaronalm-ops/premise](https://github.com/aaronalm-ops/premise)
+> **Live demo:** _add your Vercel URL here once deployed; share on demand only — see [D-030](DECISIONS.md) on the cost-burn rationale_
+
 ## The 50-word version (resume bullet, LinkedIn headline, email signature)
 
 **Premise** — building an AI co-pilot for market and consumer insights researchers. End-to-end workflow grounded in historical research via strict-mode RAG (zero fabrication via schema-enforced citations + verification pass). Stack: Next.js, Anthropic Claude, Supabase pgvector, Voyage embeddings. Designed for <$5/mo runtime. [github.com/aaronalm-ops/premise]

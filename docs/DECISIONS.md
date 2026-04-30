@@ -892,8 +892,187 @@ No edit affordance: senior researchers reject good hypotheses because one word i
 
 ---
 
+## D-025 — Zod validation at every API boundary + safe-error responses
+
+### The story
+
+You've been running fieldwork for years. Your QA process has been: "we'll just trust the moderators to follow the discussion guide." Mostly works. Occasionally a moderator skips a section, mishears a respondent ID, types the wrong stimulus number. You catch it on the recon if you're lucky. You don't catch it at all if you're not.
+
+What changes in mature ops? You add a checklist at the *boundary* — before the recording starts, before the data leaves the moderator's hands. The checklist either passes (proceed) or fails loud (with the exact field that's wrong). No more "trust the moderator."
+
+API request validation is the same. Until now, every API route hand-rolled `typeof` checks for fields. Brittle, easy to miss, easy to drift. With Zod schemas at every boundary: requests either parse cleanly into a typed object, or fail with a 400 listing every invalid field by path. No more "trust the client."
+
+Paired with this: a safe-error helper that *never* leaks internal error messages or schema info to the client. In production, internal errors return a generic message + a request id; the real error logs to the server with that id for debugging. In dev, the real message surfaces to make iteration fast.
+
+### What we built
+
+- `src/lib/validation/schemas.ts` — one Zod schema per request body and per param shape (project create, brief create/update, hypothesis update, persona update, question update, variant update, ask).
+- `src/lib/api/safe-error.ts` — a single helper that handles every error path:
+  - `ZodError` → 400 with field-level issues
+  - `HttpError` (intentional public message) → its status + public message
+  - Anything else → 500 with `{ error, request_id }` (real error logs server-side)
+- Every API route refactored to: `try { schema.parse(input); ... } catch (err) { return safeError(err); }`. Identical pattern across 12+ routes.
+
+### The PM lesson
+
+**Validate at the boundary, sanitise on the way out.** The two halves of every robust API surface. Boundary validation makes invalid requests fail fast with a clear contract. Output sanitisation makes internal errors fail safe with a clear message.
+
+For an AI PM specifically: **predictable error responses are part of the product.** A 500 that returns a database error is hostile to client developers. A 400 that lists exactly which fields are wrong feels professional. Hiring managers reviewing the repo will look for this.
+
+### What would break if we got it wrong
+
+Hand-rolled validation: a `typeof` check passes a malformed object that crashes deeper in the code, returning a 500 with a stack trace. The client developer can't tell what to fix. The bot's schema info leaks. Fix one path, miss another.
+
+No safe-error wrapper: production 500 responses include things like `relation "briefs" does not exist` or `Anthropic key invalid`. Schema info, infrastructure details, and credentials hints all leak to whoever pings your URLs.
+
+---
+
+## D-026 — Atomic generation via Postgres functions
+
+### The story
+
+You've been scraping social posts for a brand-listening study. You write a script that deletes last week's records, then inserts this week's. Halfway through the insert, the API rate-limits. Now you have *no* records at all — last week's are gone, this week's never finished.
+
+That's exactly the failure mode `replaceProposedHypotheses` had: it deleted all proposed rows, then inserted new ones. If the insert failed, the user lost their existing proposed work.
+
+The fix: a Postgres function that wraps the delete + insert in a single transaction. If anything inside fails, the entire operation rolls back — including the prior delete. The user keeps their existing proposed rows. No partial-state damage.
+
+### What we built
+
+- Migration `0005_phase4_atomic_locks.sql` defines three plpgsql functions:
+  - `replace_proposed_hypotheses(brief_id, project_id, drafts jsonb)`
+  - `replace_proposed_personas(brief_id, project_id, drafts jsonb)`
+  - `replace_proposed_questions(brief_id, project_id, drafts jsonb)` — also handles the question_variants insert atomically (3 variants per question, all-or-nothing).
+- Each plpgsql function runs inside a single implicit transaction. Any error inside any insert rolls back the prior delete.
+- The TS DB helpers (`replaceProposedHypotheses` etc.) now call these via `supabase.rpc(...)` and read back the inserted rows for the response.
+
+### The PM lesson
+
+**Multi-step operations on shared state need atomicity, not optimism.** "It usually works" is fine for a demo and dangerous for a product. The cost of moving from delete-then-insert to a transactional RPC is small (one Postgres function); the cost of *not* doing it is data loss in the failure mode that's most likely to happen during a peak load (when retries fail).
+
+### What would break if we got it wrong
+
+Network blip during a regenerate: delete succeeds, insert times out, user has empty `proposed` and no error rollback. They thought they were "regenerating" — instead they erased their work.
+
+---
+
+## D-027 — Retry with exponential backoff on transient API failures
+
+### The story
+
+You're running a tracker wave on a tight client deadline. Halfway through fielding, your panel provider's API rate-limits you for 90 seconds. Your script aborts. You call the provider, they say "just retry, you'll be fine." You spend the next hour writing retry logic into your fieldwork pipeline.
+
+For Anthropic and Voyage, the equivalent failure modes are 429 (rate limit), 529 (Anthropic-specific overloaded signal), and transient 5xx server errors. Without retries, any of these kills the user's flow.
+
+### What we built
+
+- `src/lib/api/retry.ts` — a `withRetry(fn, options)` helper. Default: 3 attempts, exponential backoff (250ms / 500ms / 1000ms with up to 25% jitter), retryable on 408/429/500/502/503/504/529 + network-level errors (ECONNRESET, ETIMEDOUT, etc.). Never retries 4xx client errors (other than 429).
+- Wraps every Anthropic call inside `tracedMessagesCreate` (so retry behaviour is uniform across all 6 generation paths) and the Voyage embed fetch.
+- `onRetry` callback logs to console so we can see when retries are happening.
+
+### The PM lesson
+
+**Resilience is invisible when it works and load-bearing when it doesn't.** A user who never sees a retry never thinks about it. The same user without retries hits "Anthropic returned 529, please reload" once a week and starts to distrust the product. The fix is small; the trust difference is large.
+
+For an AI PM: **the cheapest reliability layer in any AI product is exponential-backoff retry on the LLM call.** Always add it. Always tune `maxAttempts` and `baseDelayMs` per provider's documented rate limits.
+
+### What would break if we got it wrong
+
+No retry: every Anthropic 529 (which happens occasionally during peak load) bricks a user's flow until they reload + retry manually. The "<$5/mo" cost story stays intact (no extra calls), but the product's reliability story dies.
+
+---
+
+## D-028 — Generation locks: idempotency for double-clicks
+
+### The story
+
+A researcher hits "Regenerate hypotheses." They wait three seconds. They get impatient. They click again. Now two parallel generation requests are in flight against the same brief. Both call `replaceProposedHypotheses`, both delete the same rows, both try to insert new ones with the same ordinal numbers. Race condition. Best case: duplicate inserts. Worst case: partial state from one race winner clobbers the other's work.
+
+The fix: a lightweight server-side mutex per resource. The first request acquires the lock; the second gets a 409 ("already in progress, please wait") and the user understands why their second click did nothing.
+
+### What we built
+
+- A `generation_locks` table with primary key `key` (text) — the unique constraint enforces mutual exclusion. Each row has an `expires_at` timestamp so a crashed handler doesn't permanently jam the endpoint.
+- `src/lib/api/with-lock.ts` — `withGenerationLock(key, fn)`:
+  - Sweeps stale locks (expired ones) before attempting acquire.
+  - Inserts a row keyed by the operation (e.g. `hypotheses:<brief_id>`).
+  - On `23505` (unique violation): throws `HttpError(409, "...")`.
+  - On success or failure of `fn`: deletes the lock row.
+- Applied to all three generation endpoints: `/api/briefs/[id]/hypotheses`, `/api/briefs/[id]/personas`, `/api/briefs/[id]/questions`. The cost-bearing, mutation-bearing operations.
+
+### The PM lesson
+
+**Idempotency is a property of the system, not a hope of the client.** Don't tell users "please don't double-click." Make double-clicks safe. The simplest way: a per-resource lock at the boundary that costs nothing when there's no contention and rejects loudly when there is.
+
+### What would break if we got it wrong
+
+No lock: parallel generation requests race, the DB has half the new rows + half the old, the UI shows whichever subset arrived last, the cost telemetry shows double the spend. Worst kind of bug — the user's data is wrong but no error fires.
+
+---
+
+## D-029 — Project creation in the UI
+
+### The story
+
+The first time a new user opens Premise, they see "No projects yet — create one with `npm run create-project`." That's a CLI command they may not know how to find or run. Half of new users bounce at this step. The product's first impression becomes "I have to use the terminal to start."
+
+We added a "+ New" button to the project switcher and a modal form (name, description, confidentiality tier). The CLI still works — useful for scripting, eval setup, etc. — but the UI is now the default path.
+
+### What we built
+
+- `src/components/canvas/new-project-modal.tsx` — modal form with name, description, three-option confidentiality picker (with hint text per option). Esc closes; click outside doesn't (deliberate — accidental dismissals lose draft work).
+- `src/components/canvas/project-switcher.tsx` — adds a `+ New` button next to the dropdown. After successful creation, refreshes the list and auto-selects the new project.
+- The existing CLI (`npm run create-project`) is unchanged — useful for evals, scripts, and reproducible setup.
+
+### The PM lesson
+
+**Onboarding-blocking CLI commands are a self-inflicted churn lever.** Power users like CLIs; first-time users do not. For any operation a user needs to perform on their first session, there must be a UI path. CLI is a *complement* to the UI, never the *only* path.
+
+### What would break if we got it wrong
+
+Keep the CLI-only flow: every new user has to read the README, find the npm script, open a terminal in the right directory. Half bounce. The other half learn that "Premise expects you to know things" — which is the wrong vibe for a product that's supposed to widen their option space, not narrow their patience.
+
+---
+
+## D-030 — Public repo, semi-public live demo, no auth (yet)
+
+### The story
+
+You're publishing your case study and you have two artefacts: the *code* (a public GitHub repo) and the *running thing* (a live URL). They have different audiences and different risk profiles:
+
+- **The code is for hiring managers, AI engineers, and your future self.** Zero risk to make public. Higher value the more eyes are on it. The decision log, eval harness, and case study are the differentiators — those need to be readable.
+- **The live URL is for two specific groups**: (a) people you want to demo to in conversation, (b) yourself dogfooding on a real client project. Cost-burn risk: anyone with the URL can trigger ~$0.05 generations against your Anthropic balance. Search-engine indexing and casual link-sharing are the actual threat surface, not targeted attackers — Anthropic's per-account rate limits cap the worst case at "balance drained" (~$9), not "thousands of dollars compromised."
+
+So the two artefacts get different treatment.
+
+### What we did
+
+- **Repo: public on GitHub.** Decisions log, eval harness, case study, all 30 D-NN entries — all readable.
+- **Live URL: deployed to Vercel free tier, but deliberately not broadcast.**
+  - `public/robots.txt` blocks all search-engine crawling. URL doesn't get indexed; bots don't find it.
+  - The live URL is shared **on demand** via personal email, LinkedIn message, or portfolio site — never tweeted, never posted to a forum, never put in an open-source-friendly aggregator.
+  - Every API call records into `api_calls` (D-023) so spend is monitorable in real time.
+  - If abuse ever materialises (cost spikes, unexpected traffic patterns), the next-step plan is documented: a single-PIN gate via Next.js middleware, ~30 minutes of work.
+- **Auth (real auth, not a PIN gate) is a Phase 6+ commercial concern** — not now.
+
+### The PM lesson
+
+**Open-source the *artefact*, gate the *resource*.** Code is cheap to publish, valuable to share, has zero runtime cost. Compute is expensive to publish, valuable to gate, has real runtime cost. Treat them as different products with different distribution strategies.
+
+For an AI PM specifically: **sharing public AI demos is a cost-management problem, not a marketing problem.** The first question to ask before a public deploy is "what's the worst-case spend per hour if a bot finds this?" If the answer is "fine, capped at my credit balance," ship it. If the answer is "thousands of dollars," gate it before deploy.
+
+### What would break if we got it wrong
+
+Public repo + public unbroadcast URL + no `robots.txt`: search engines index the deployment within 48 hours. Within a week, automated agents probing for free LLM endpoints find it. Cost-burn rate goes from "$0/day" to "$50/day until balance drains." You wake up to an empty Anthropic account and a confused billing alert.
+
+Public repo + truly private URL (Vercel Authentication forced): friction so high that nobody you actually want to demo to will sign up for Vercel just to see your demo. The URL becomes useless.
+
+What we shipped: the middle path. Public artefact, gated resource via *obscurity + monitoring*, with a clear escalation path to real auth if needed.
+
+---
+
 ## How to use this doc going forward
 
-- **Every new decision gets a numbered entry below.** D-025, D-026, etc.
+- **Every new decision gets a numbered entry below.** D-031, D-032, etc.
 - **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
 - **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.

@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { updateQuestionVariant } from "@/lib/db/questions";
+import {
+  IdParam,
+  UpdateQuestionVariantBody,
+} from "@/lib/validation/schemas";
+import { safeError } from "@/lib/api/safe-error";
 
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params;
-    const body = (await req.json()) as {
-      statement?: string;
-      response_format?: string | null;
-      response_options?: string[];
-    };
+    const { id } = IdParam.parse(await params);
+    const body = UpdateQuestionVariantBody.parse(await req.json());
     const variant = await updateQuestionVariant({
       id,
       statement: body.statement,
@@ -20,9 +21,6 @@ export async function PATCH(
     });
     return NextResponse.json({ variant });
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 },
-    );
+    return safeError(err);
   }
 }
