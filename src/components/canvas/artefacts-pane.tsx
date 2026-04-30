@@ -1,13 +1,75 @@
-const ARTEFACT_TYPES = [
-  { name: "Brief", phase: "Phase 1" },
-  { name: "Hypotheses", phase: "Phase 2" },
-  { name: "Personas", phase: "Phase 3" },
-  { name: "Questionnaire", phase: "Phase 3" },
-  { name: "Analysis", phase: "Phase 4" },
-  { name: "Story angles", phase: "Phase 5" },
-];
+"use client";
 
-export function ArtefactsPane() {
+import { useCallback, useEffect, useState } from "react";
+import type {
+  Brief,
+  Hypothesis,
+  Persona,
+  QuestionWithVariants,
+} from "@/lib/rag/types";
+import { BriefArtefact } from "./brief-artefact";
+import { HypothesesArtefact } from "./hypotheses-artefact";
+import { PersonasArtefact } from "./personas-artefact";
+import { QuestionsArtefact } from "./questions-artefact";
+
+type Props = { projectId: string | null };
+
+export function ArtefactsPane({ projectId }: Props) {
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [questions, setQuestions] = useState<QuestionWithVariants[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!projectId) {
+      setBrief(null);
+      setHypotheses([]);
+      setPersonas([]);
+      setQuestions([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/briefs?projectId=${projectId}`);
+      const data = (await r.json()) as { briefs?: Brief[] };
+      const latest = data.briefs?.[0] ?? null;
+      setBrief(latest);
+
+      if (latest) {
+        const [briefRes, personasRes, questionsRes] = await Promise.all([
+          fetch(`/api/briefs/${latest.id}`),
+          fetch(`/api/briefs/${latest.id}/personas`),
+          fetch(`/api/briefs/${latest.id}/questions`),
+        ]);
+        const briefData = (await briefRes.json()) as {
+          hypotheses?: Hypothesis[];
+        };
+        const personasData = (await personasRes.json()) as {
+          personas?: Persona[];
+        };
+        const questionsData = (await questionsRes.json()) as {
+          questions?: QuestionWithVariants[];
+        };
+        setHypotheses(briefData.hypotheses ?? []);
+        setPersonas(personasData.personas ?? []);
+        setQuestions(questionsData.questions ?? []);
+      } else {
+        setHypotheses([]);
+        setPersonas([]);
+        setQuestions([]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const hasAcceptedHypotheses = hypotheses.some((h) => h.status === "accepted");
+
   return (
     <section className="flex h-full flex-col">
       <div className="border-b border-[var(--color-border)] px-6 py-3">
@@ -16,27 +78,63 @@ export function ArtefactsPane() {
         </h2>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-        <ul className="space-y-2">
-          {ARTEFACT_TYPES.map((a) => (
-            <li
-              key={a.name}
-              className="flex items-center justify-between rounded-lg border border-dashed border-[var(--color-border)] px-4 py-3 text-sm"
-            >
-              <span className="font-medium">{a.name}</span>
-              <span className="text-xs text-[var(--color-muted-foreground)]">
-                {a.phase}
-              </span>
-            </li>
-          ))}
-        </ul>
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-6">
+        {!projectId && (
+          <div className="rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-muted)] px-4 py-6 text-center text-sm text-[var(--color-muted-foreground)]">
+            Pick a project from the top right to start.
+          </div>
+        )}
 
-        <p className="mt-6 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
-          Each artefact appears here as the conversation progresses. They are
-          editable, ranked, and citation-aware. Every option the bot generates
-          shows up as an option for you to accept, edit, or reject.
-        </p>
+        {projectId && (
+          <>
+            <BriefArtefact
+              projectId={projectId}
+              brief={brief}
+              loading={loading}
+              onChange={refresh}
+            />
+            <HypothesesArtefact
+              brief={brief}
+              hypotheses={hypotheses}
+              onChange={refresh}
+            />
+            <PersonasArtefact
+              brief={brief}
+              personas={personas}
+              hasAcceptedHypotheses={hasAcceptedHypotheses}
+              onChange={refresh}
+            />
+            <QuestionsArtefact
+              brief={brief}
+              hypotheses={hypotheses}
+              questions={questions}
+              hasAcceptedHypotheses={hasAcceptedHypotheses}
+              onChange={refresh}
+            />
+            <PhaseLockedArtefact name="Analysis" phase="Phase 4" />
+            <PhaseLockedArtefact name="Story angles" phase="Phase 5" />
+          </>
+        )}
       </div>
     </section>
+  );
+}
+
+function PhaseLockedArtefact({
+  name,
+  phase,
+}: {
+  name: string;
+  phase: string;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-dashed border-[var(--color-border)] px-4 py-3 text-sm">
+      <span className="font-medium text-[var(--color-muted-foreground)]">
+        {name}
+      </span>
+      <span className="text-xs text-[var(--color-muted-foreground)]">
+        {phase}
+      </span>
+    </div>
   );
 }

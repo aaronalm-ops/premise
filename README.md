@@ -154,7 +154,53 @@ question
 { claims, unanswered_aspects, retrieved_chunks }
 ```
 
-See [docs/DECISIONS.md](docs/DECISIONS.md) D-001 through D-016 for plain-language rationale on every choice above.
+See [docs/DECISIONS.md](docs/DECISIONS.md) D-001 through D-018 for plain-language rationale on every choice above.
+
+## Phase 2 — Hypothesis generation
+
+Once Phase 1 RAG is working, you can generate hypotheses from a brief.
+
+### Step 1 — Apply the Phase 2 schema
+
+In Supabase: **SQL Editor → New Query → paste [`supabase/migrations/0002_phase2_briefs_hypotheses.sql`](supabase/migrations/0002_phase2_briefs_hypotheses.sql) → Run**. Adds `briefs` and `hypotheses` tables.
+
+### Step 2 — Use the canvas (no CLI needed)
+
+Reload the dev server, pick your project from the dropdown. The right pane now has a **Brief** section and a **Hypotheses** section.
+
+1. Type or paste your research brief in the Brief textarea, give it an optional title, click **Create brief**.
+2. Click **Generate hypotheses**. Premise retrieves from your corpus, drafts 5–7 ranked hypotheses, and persists them as `proposed`.
+3. For each hypothesis: hit **Accept** (it survives regenerate) or **Reject** (also survives regenerate; resurface with **Reset**). Click **details** on a card to see assumptions, expected direction, confirmation criteria, and supporting/contradicting citation chips.
+4. Hit **Regenerate proposed** to draft fresh candidates without disturbing your accepted/rejected decisions.
+
+### What's enforced at the schema level
+
+Every hypothesis must cite at least one supporting OR contradicting chunk from the corpus — the LLM tool_use schema rejects empty citation lists. Pure speculation cannot reach the database. See [D-018](docs/DECISIONS.md#d-018) for why this matters.
+
+## Phase 3 — Personas and questionnaires with variants
+
+The product-defining phase: the "options not answers" principle becomes a literal UI surface.
+
+### Step 1 — Apply the Phase 3 schema
+
+In Supabase: **SQL Editor → New Query → paste [`supabase/migrations/0003_phase3_personas_questions.sql`](supabase/migrations/0003_phase3_personas_questions.sql) → Run**. Adds `personas`, `questions`, `question_variants` tables.
+
+### Step 2 — In the canvas, after you have at least one accepted hypothesis
+
+The right pane now has a **Personas** section and a **Questionnaire** section.
+
+1. **Recommend personas** — bot retrieves from corpus, generates 3-5 ranked personas. Each persona has an `under_represents` field calling out the sampling blind spot. Accept the ones that match the brief's audience.
+2. **Draft questionnaire** — bot generates 4-8 questions tied to your accepted hypotheses. **Each question has 3 variants** from different methodological frames (neutral_direct / behavioural / projective / etc.).
+3. For each question, the three variants are displayed side-by-side. Each card shows:
+   - The variant type (Neutral, Leading, Projective, Behavioural, etc.)
+   - The actual question statement
+   - **What it elicits** — what THIS phrasing surfaces
+   - **Caveat** — the bias or weakness it carries
+4. Click a variant card to **select** it as the canonical phrasing for that question. Accept the question once you've picked a variant.
+
+### Why three variants
+
+The same question phrased three ways elicits three different things. A senior researcher's instinct knows which to pick; a junior or generic LLM doesn't. The bot's job is to widen the option space and surface the tradeoff — the researcher picks. See [D-019](docs/DECISIONS.md) for the full reasoning.
 
 ## Repo layout (planned)
 

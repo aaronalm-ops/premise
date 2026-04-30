@@ -15,7 +15,7 @@ export function CanvasShell() {
           <div className="size-7 rounded-md bg-[var(--color-foreground)]" />
           <h1 className="text-sm font-semibold tracking-tight">Premise</h1>
           <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-muted-foreground)]">
-            Phase 1.5
+            Phase 3
           </span>
         </div>
         <ProjectSwitcher selectedId={projectId} onSelect={setProjectId} />
@@ -23,7 +23,7 @@ export function CanvasShell() {
 
       <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] overflow-hidden">
         <ChatPane projectId={projectId} />
-        <ArtefactsPane />
+        <ArtefactsPane projectId={projectId} />
       </main>
     </div>
   );
