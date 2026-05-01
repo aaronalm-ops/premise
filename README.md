@@ -2,7 +2,8 @@
 
 > Every research project starts with one.
 
-[github.com/aaronalm-ops/premise](https://github.com/aaronalm-ops/premise)
+**Live demo:** [premise-one.vercel.app](https://premise-one.vercel.app/) (private-share — request access)
+**Repo:** [github.com/aaronalm-ops/premise](https://github.com/aaronalm-ops/premise)
 
 An AI co-pilot for market and consumer insights researchers. It walks you through the full research lifecycle: **brief → hypotheses → questionnaire (with persona recommendations & question variants) → data analysis → story angles**, and grounds every step in your historical research via strict, citation-only RAG.
 

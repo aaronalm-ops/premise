@@ -7,7 +7,7 @@
 ## Live deployment
 
 > **Repo (public):** [github.com/aaronalm-ops/premise](https://github.com/aaronalm-ops/premise)
-> **Live demo:** _add your Vercel URL here once deployed; share on demand only — see [D-030](DECISIONS.md) on the cost-burn rationale_
+> **Live demo:** [premise-one.vercel.app](https://premise-one.vercel.app/) (private-share — request access via personal email or LinkedIn DM; not broadcast publicly — see [D-030](DECISIONS.md) on the cost-burn rationale)
 
 ## The 50-word version (resume bullet, LinkedIn headline, email signature)
 

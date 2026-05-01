@@ -6,6 +6,9 @@ This file is auto-loaded by Claude Code when working in this repo. Read it befor
 
 **Premise** is an AI co-pilot for market and consumer insights researchers. End-to-end workflow: brief → hypotheses → questionnaire (with persona recommendations and question variants) → analysis → story angles, grounded in the researcher's historical work via strict-mode RAG.
 
+**Live demo:** https://premise-one.vercel.app/ (private-share, not publicly broadcast — D-030)
+**Repo:** https://github.com/aaronalm-ops/premise (public)
+
 ## Owner
 
 Aaron — Researcher / Analyst transitioning to AI Product Manager. This repo is his first AI project and is being built as a portfolio piece *and* a case study. He has deep researcher domain expertise and limited engineering background ("aspiring vibe coder"). Treat him as the product owner with research domain authority; treat the build as the engineering arm.
