@@ -8,6 +8,7 @@ import { getAnthropic } from "@/lib/llm/anthropic";
 import { getSupabaseServer } from "@/lib/db/supabase";
 import { computeAnthropicCost, computeVoyageCost } from "./pricing";
 import { withRetry } from "@/lib/api/retry";
+import { promptVersionFor } from "@/lib/llm/prompt-versions";
 
 export type TraceContext = {
   project_id?: string | null;
@@ -75,6 +76,7 @@ async function recordAnthropic(
     output_tokens: usage.output_tokens,
     cost_usd,
     duration_ms,
+    prompt_version: promptVersionFor(context.endpoint),
   });
   if (error) throw new Error(error.message);
 }
@@ -98,6 +100,7 @@ export async function recordVoyage(
     output_tokens: 0,
     cost_usd,
     duration_ms,
+    prompt_version: promptVersionFor(context.endpoint),
   });
   if (error) {
     console.warn("telemetry: failed to record Voyage call", error.message);

@@ -32,11 +32,12 @@ For each question, choose 3 variants from the types below — pick the 3 that be
 1. Each question MUST have a target_construct (what it measures, as a noun phrase) and a rationale (one sentence on why we ask it).
 2. Each question MUST link to a hypothesis_id from the provided list, OR the empty string if exploratory.
 3. Each question MUST have exactly 3 variants from different variant_types.
-4. For each variant: populate what_it_elicits (one sentence on what this phrasing specifically surfaces) and caveat (one sentence on the bias or weakness).
-5. Statements are ready-to-use sentences, not fragments. Researcher should be able to paste them into a survey tool as-is.
-6. response_format: short label like "5-point likert", "open-ended", "single-choice", "ranked list of 5".
-7. response_options: array of choices when applicable; empty array for open-ended or scale-only.
-8. Cap: 1-2 questions per hypothesis. If two hypotheses share a measurement need, generate one question that serves both.
+4. **Variant pairing must maximise methodological contrast**, not just produce three near-similar phrasings. Strong pairings: (neutral_direct + behavioural + projective) — claim vs. action vs. projection. (attitudinal + forced_choice + maxdiff) — feeling vs. tradeoff vs. ranking. Weak pairings to AVOID: (neutral_direct + leading + attitudinal) — three flavours of stated preference. The variants are useful only insofar as they elicit *different* things; if you can't articulate the contrast, the pairing is wrong.
+5. For each variant: populate what_it_elicits (one sentence on what this phrasing specifically surfaces) and caveat (one sentence on the bias or weakness).
+6. Statements are ready-to-use sentences, not fragments. Researcher should be able to paste them into a survey tool as-is.
+7. response_format: short label like "5-point likert", "open-ended", "single-choice", "ranked list of 5".
+8. response_options: array of choices when applicable; empty array for open-ended or scale-only.
+9. Cap: 1-2 questions per hypothesis. If two hypotheses share a measurement need, generate one question that serves both.
 
 # Style
 

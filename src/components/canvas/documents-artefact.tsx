@@ -188,6 +188,23 @@ export function DocumentsArtefact({ projectId }: Props) {
                 <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">
                   {d.chunk_count ?? 0} chunks
                 </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        `Delete "${d.title}" from the corpus? Cannot undo.`,
+                      )
+                    )
+                      return;
+                    await fetch(`/api/documents/${d.id}`, { method: "DELETE" });
+                    refresh();
+                  }}
+                  title="Delete document"
+                  className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]"
+                >
+                  Delete
+                </button>
               </li>
             ))}
           </ul>

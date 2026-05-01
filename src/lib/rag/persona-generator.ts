@@ -20,8 +20,8 @@ const PERSONA_TOOL = {
     properties: {
       personas: {
         type: "array",
-        minItems: 3,
-        maxItems: 5,
+        minItems: 2,
+        maxItems: 7,
         items: {
           type: "object",
           properties: {
@@ -91,6 +91,7 @@ export type GeneratePersonasInput = {
   projectId: string;
   acceptedHypotheses: Hypothesis[];
   briefId?: string | null;
+  count?: number; // 2-7, default 4
 };
 
 export type GeneratePersonasResult = {
@@ -130,7 +131,8 @@ export async function generatePersonas(
           .join("\n")
       : "(none yet — propose personas based on the brief alone)";
 
-  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypotheses}\n\n# Retrieved chunks (your source of grounding)\n${corpus}\n\nCall propose_personas now with 3-5 ranked personas.`;
+  const count = Math.min(7, Math.max(2, input.count ?? 4));
+  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypotheses}\n\n# Retrieved chunks (your source of grounding)\n${corpus}\n\nCall propose_personas now with exactly ${count} ranked personas.`;
 
   const response = await tracedMessagesCreate(
     {

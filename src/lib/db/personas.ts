@@ -50,12 +50,30 @@ export async function replaceProposedPersonas(input: {
 export async function updatePersona(input: {
   id: string;
   status?: HypothesisStatus;
+  rejection_reason?: string | null;
+  name?: string;
+  description?: string;
+  demographic_profile?: string | null;
+  behavioural_profile?: string | null;
+  under_represents?: string | null;
+  assumptions?: string[];
 }): Promise<Persona> {
   const supabase = getSupabaseServer();
   const patch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
   if (input.status !== undefined) patch.status = input.status;
+  if (input.rejection_reason !== undefined)
+    patch.rejection_reason = input.rejection_reason;
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.description !== undefined) patch.description = input.description;
+  if (input.demographic_profile !== undefined)
+    patch.demographic_profile = input.demographic_profile;
+  if (input.behavioural_profile !== undefined)
+    patch.behavioural_profile = input.behavioural_profile;
+  if (input.under_represents !== undefined)
+    patch.under_represents = input.under_represents;
+  if (input.assumptions !== undefined) patch.assumptions = input.assumptions;
 
   const { data, error } = await supabase
     .from("personas")

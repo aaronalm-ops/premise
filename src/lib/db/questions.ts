@@ -78,6 +78,7 @@ export async function updateQuestion(input: {
   selected_variant_id?: string | null;
   status?: HypothesisStatus;
   notes?: string | null;
+  rejection_reason?: string | null;
   target_construct?: string;
   rationale?: string | null;
 }): Promise<Question> {
@@ -89,6 +90,8 @@ export async function updateQuestion(input: {
     patch.selected_variant_id = input.selected_variant_id;
   if (input.status !== undefined) patch.status = input.status;
   if (input.notes !== undefined) patch.notes = input.notes;
+  if (input.rejection_reason !== undefined)
+    patch.rejection_reason = input.rejection_reason;
   if (input.target_construct !== undefined)
     patch.target_construct = input.target_construct;
   if (input.rationale !== undefined) patch.rationale = input.rationale;

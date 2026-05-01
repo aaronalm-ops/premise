@@ -56,6 +56,12 @@ export function logSummary(s: EvalRunSummary): void {
     if (v.total === 0) continue;
     console.log(`  ${t.padEnd(20)} ${v.passed}/${v.total} passed`);
   }
+  if (s.cost) {
+    console.log("");
+    console.log(
+      `Cost: $${s.cost.total_usd.toFixed(4)} across ${s.cost.call_count} API call(s) · ${(s.cost.cache_hit_rate * 100).toFixed(0)}% cache hit`,
+    );
+  }
 }
 
 export function writeSummary(s: EvalRunSummary, dir: string): string {

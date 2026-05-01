@@ -32,9 +32,9 @@ export async function withRetry<T>(
   fn: () => Promise<T>,
   options: RetryOptions = {},
 ): Promise<T> {
-  const max = options.maxAttempts ?? 3;
-  const base = options.baseDelayMs ?? 250;
-  const cap = options.maxDelayMs ?? 4000;
+  const max = options.maxAttempts ?? 5;
+  const base = options.baseDelayMs ?? 500;
+  const cap = options.maxDelayMs ?? 30000;
   const retryable = options.isRetryable ?? isTransient;
 
   let lastErr: unknown;

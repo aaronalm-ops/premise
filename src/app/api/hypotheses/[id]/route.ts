@@ -30,6 +30,7 @@ export async function PATCH(
       id,
       status: body.status,
       notes: body.notes,
+      rejection_reason: body.rejection_reason,
       statement: body.statement,
       expected_direction: body.expected_direction,
       confirmation_criteria: body.confirmation_criteria,

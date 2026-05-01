@@ -25,6 +25,12 @@ export function PersonasArtefact({
 
   const generate = async () => {
     if (!brief) return;
+    if (personas.some((p) => p.status === "proposed")) {
+      const ok = window.confirm(
+        `Regenerate will delete the ${personas.filter((p) => p.status === "proposed").length} currently-proposed personas (accepted and rejected ones are kept). Continue?`,
+      );
+      if (!ok) return;
+    }
     setGenerating(true);
     setError(null);
     try {
@@ -39,6 +45,23 @@ export function PersonasArtefact({
     } finally {
       setGenerating(false);
     }
+  };
+
+  const acceptAllProposed = async () => {
+    const proposed = personas.filter((p) => p.status === "proposed");
+    if (proposed.length === 0) return;
+    const ok = window.confirm(`Accept all ${proposed.length} proposed personas?`);
+    if (!ok) return;
+    await Promise.all(
+      proposed.map((p) =>
+        fetch(`/api/personas/${p.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "accepted" }),
+        }),
+      ),
+    );
+    onChange();
   };
 
   const buckets = {
@@ -60,17 +83,27 @@ export function PersonasArtefact({
               : `${buckets.accepted.length} accepted · ${buckets.proposed.length} proposed · ${buckets.rejected.length} rejected`}
           </span>
         </div>
-        <button
-          onClick={generate}
-          disabled={!brief || generating}
-          className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[10px] font-medium uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {generating
-            ? "Generating…"
-            : personas.length === 0
-              ? "Recommend personas"
-              : "Regenerate proposed"}
-        </button>
+        <div className="flex items-center gap-1">
+          {buckets.proposed.length > 1 && (
+            <button
+              onClick={acceptAllProposed}
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100"
+            >
+              Accept all
+            </button>
+          )}
+          <button
+            onClick={generate}
+            disabled={!brief || generating}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[10px] font-medium uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {generating
+              ? "Generating…"
+              : personas.length === 0
+                ? "Recommend personas"
+                : "Regenerate proposed"}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3 px-4 py-3">
@@ -147,12 +180,21 @@ function PersonaCard({ p, onChange }: { p: Persona; onChange: () => void }) {
   const [expanded, setExpanded] = useState(false);
 
   const setStatus = async (status: HypothesisStatus) => {
+    let rejection_reason: string | null = null;
+    if (status === "rejected") {
+      const input = window.prompt(
+        "Why are you rejecting this persona? (optional)",
+        "",
+      );
+      if (input === null) return;
+      rejection_reason = input.trim() || null;
+    }
     setBusy(status);
     try {
       const r = await fetch(`/api/personas/${p.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, rejection_reason }),
       });
       if (r.ok) onChange();
     } finally {
@@ -212,7 +254,7 @@ function PersonaCard({ p, onChange }: { p: Persona; onChange: () => void }) {
         {p.description}
       </p>
       {p.under_represents && (
-        <p className="mt-1.5 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[var(--color-foreground)] dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100">
+        <p className="mt-1.5 rounded border border-indigo-300 bg-indigo-50 px-2 py-1 text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-100">
           <span className="text-[10px] font-semibold uppercase tracking-wider">
             Under-represents:
           </span>{" "}

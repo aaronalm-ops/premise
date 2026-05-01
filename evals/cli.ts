@@ -104,6 +104,43 @@ async function main() {
 
   const finishedAt = new Date();
   const summary = summarise(results, startedAt, finishedAt);
+
+  // Cost regression: query api_calls for everything recorded during this run.
+  try {
+    const { getSupabaseServer } = await import("@/lib/db/supabase");
+    const supabase = getSupabaseServer();
+    const { data } = await supabase
+      .from("api_calls")
+      .select(
+        "cost_usd, input_tokens, cached_input_tokens",
+      )
+      .gte("created_at", startedAt.toISOString());
+    if (data && data.length > 0) {
+      let total = 0;
+      let cached = 0;
+      let inputTotal = 0;
+      for (const row of data as Array<{
+        cost_usd: number | string;
+        input_tokens: number;
+        cached_input_tokens: number;
+      }>) {
+        total +=
+          typeof row.cost_usd === "string"
+            ? parseFloat(row.cost_usd)
+            : row.cost_usd;
+        cached += row.cached_input_tokens ?? 0;
+        inputTotal += (row.input_tokens ?? 0) + (row.cached_input_tokens ?? 0);
+      }
+      summary.cost = {
+        total_usd: total,
+        call_count: data.length,
+        cache_hit_rate: inputTotal > 0 ? cached / inputTotal : 0,
+      };
+    }
+  } catch (err) {
+    console.warn("Could not fetch cost data:", err);
+  }
+
   logSummary(summary);
 
   const path = writeSummary(summary, RESULTS_DIR);

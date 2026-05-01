@@ -61,6 +61,7 @@ export async function updateHypothesis(input: {
   confirmation_criteria?: string | null;
   assumptions?: string[];
   priority?: 1 | 2 | 3 | 4 | 5;
+  rejection_reason?: string | null;
 }): Promise<Hypothesis> {
   const supabase = getSupabaseServer();
   const patch: Record<string, unknown> = {
@@ -68,6 +69,8 @@ export async function updateHypothesis(input: {
   };
   if (input.status !== undefined) patch.status = input.status;
   if (input.notes !== undefined) patch.notes = input.notes;
+  if (input.rejection_reason !== undefined)
+    patch.rejection_reason = input.rejection_reason;
   if (input.statement !== undefined) patch.statement = input.statement;
   if (input.expected_direction !== undefined)
     patch.expected_direction = input.expected_direction;

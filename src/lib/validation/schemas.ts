@@ -44,6 +44,7 @@ export const UpdateHypothesisBody = z
   .object({
     status: ItemStatus.optional(),
     notes: z.string().nullable().optional(),
+    rejection_reason: z.string().nullable().optional(),
     statement: z.string().min(1).optional(),
     expected_direction: z.string().nullable().optional(),
     confirmation_criteria: z.string().nullable().optional(),
@@ -57,9 +58,18 @@ export const UpdateHypothesisBody = z
 // ===== Personas =====
 
 export const UpdatePersonaBody = z
-  .object({ status: ItemStatus.optional() })
-  .refine((b) => b.status !== undefined, {
-    message: "patch must include status",
+  .object({
+    status: ItemStatus.optional(),
+    rejection_reason: z.string().nullable().optional(),
+    name: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
+    demographic_profile: z.string().nullable().optional(),
+    behavioural_profile: z.string().nullable().optional(),
+    under_represents: z.string().nullable().optional(),
+    assumptions: z.array(z.string()).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, {
+    message: "patch must include at least one field",
   });
 
 // ===== Questions =====
@@ -69,6 +79,7 @@ export const UpdateQuestionBody = z
     selected_variant_id: z.string().uuid().nullable().optional(),
     status: ItemStatus.optional(),
     notes: z.string().nullable().optional(),
+    rejection_reason: z.string().nullable().optional(),
     target_construct: z.string().min(1).optional(),
     rationale: z.string().nullable().optional(),
   })

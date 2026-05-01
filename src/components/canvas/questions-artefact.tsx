@@ -41,6 +41,12 @@ export function QuestionsArtefact({
 
   const generate = async () => {
     if (!brief) return;
+    if (questions.some((q) => q.status === "proposed")) {
+      const ok = window.confirm(
+        `Redrafting will delete the ${questions.filter((q) => q.status === "proposed").length} currently-proposed questions (accepted and rejected ones are kept). Continue?`,
+      );
+      if (!ok) return;
+    }
     setGenerating(true);
     setError(null);
     try {
@@ -230,12 +236,21 @@ function QuestionCard({
   const [busy, setBusy] = useState<HypothesisStatus | "select" | null>(null);
 
   const setStatus = async (status: HypothesisStatus) => {
+    let rejection_reason: string | null = null;
+    if (status === "rejected") {
+      const input = window.prompt(
+        "Why are you rejecting this question? (optional)",
+        "",
+      );
+      if (input === null) return;
+      rejection_reason = input.trim() || null;
+    }
     setBusy(status);
     try {
       const r = await fetch(`/api/questions/${q.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, rejection_reason }),
       });
       if (r.ok) onChange();
     } finally {

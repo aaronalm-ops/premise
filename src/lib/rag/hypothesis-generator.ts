@@ -18,8 +18,8 @@ const HYPOTHESIS_TOOL = {
     properties: {
       hypotheses: {
         type: "array",
-        minItems: 5,
-        maxItems: 7,
+        minItems: 3,
+        maxItems: 10,
         items: {
           type: "object",
           properties: {
@@ -85,6 +85,7 @@ export type GenerateHypothesesInput = {
   briefContent: string;
   projectId: string;
   briefId?: string | null;
+  count?: number; // 3-10, default 6
 };
 
 export type GenerateHypothesesResult = {
@@ -117,7 +118,8 @@ export async function generateHypotheses(
     .map((c) => `<chunk id="${c.id}">\n${c.content}\n</chunk>`)
     .join("\n\n");
 
-  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Retrieved chunks (your only source of grounding)\n${corpus}\n\nCall propose_hypotheses now with 5-7 hypotheses.`;
+  const count = Math.min(10, Math.max(3, input.count ?? 6));
+  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Retrieved chunks (your only source of grounding)\n${corpus}\n\nCall propose_hypotheses now with exactly ${count} hypotheses.`;
 
   const response = await tracedMessagesCreate(
     {

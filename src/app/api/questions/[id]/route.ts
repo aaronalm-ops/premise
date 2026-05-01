@@ -31,6 +31,7 @@ export async function PATCH(
       selected_variant_id: body.selected_variant_id,
       status: body.status,
       notes: body.notes,
+      rejection_reason: body.rejection_reason,
       target_construct: body.target_construct,
       rationale: body.rationale,
     });

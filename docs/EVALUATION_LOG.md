@@ -179,7 +179,7 @@ Each gap above gets a status: `open` / `in-progress` / `resolved` / `wont-fix`. 
 | P-1 — No success metrics | open | |
 | P-2 — No user feedback loop | open | |
 | P-3 — No telemetry | resolved | D-023 (Tier 1 — initial telemetry; behavioural telemetry still open) |
-| P-4 — selected_variant_id has no consumer | partial | Now consumed by survey export (D-022); analysis pipeline (Phase 4) still pending |
+| P-4 — selected_variant_id has no consumer | resolved | Phase 4 analysis (D-034) consumes selected_variant_id as the canonical question wording |
 | P-5 — No in-product taxonomy explanation | open | |
 | P-6 — Hardcoded option counts | open | |
 | P-7 — No version history on briefs | open | |

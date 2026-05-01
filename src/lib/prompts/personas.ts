@@ -31,4 +31,8 @@ Generate 3-5 ranked personas.
 - assumptions: short phrases the researcher should sanity-check
 - under_represents: one specific sentence
 
+# Sample size guidance
+
+Each persona's description should hint at recommended sample size for fieldwork. Default heuristic: quant studies need n ≥ 80 per persona for confident segment-level reads, ≥ 150 for sub-segment splits. Qual studies need n=8-12 per persona for theme saturation. If a persona is rare in the population (estimated <10% incidence), call out the recruitment difficulty and recommend over-sampling. Phrase recommendations directly inside the description when relevant — not as a separate field.
+
 You have access to a tool called propose_personas. You MUST call it. Do not produce free text.`;

@@ -66,6 +66,30 @@ export function ProjectSwitcher({ selectedId, onSelect }: Props) {
       >
         + New
       </button>
+      {selectedId && (
+        <button
+          type="button"
+          onClick={async () => {
+            const project = projects.find((p) => p.id === selectedId);
+            if (!project) return;
+            const ok = window.confirm(
+              `Delete project "${project.name}" and all its briefs, hypotheses, personas, questions, documents, and analyses? This cannot be undone.`,
+            );
+            if (!ok) return;
+            const r = await fetch(`/api/projects/${selectedId}`, {
+              method: "DELETE",
+            });
+            if (r.ok) {
+              onSelect(null);
+              refresh();
+            }
+          }}
+          title="Delete selected project"
+          className="rounded-md border border-[var(--color-border)] px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]"
+        >
+          Delete
+        </button>
+      )}
       <NewProjectModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}

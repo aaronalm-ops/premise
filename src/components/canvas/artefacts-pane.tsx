@@ -12,6 +12,8 @@ import { DocumentsArtefact } from "./documents-artefact";
 import { HypothesesArtefact } from "./hypotheses-artefact";
 import { PersonasArtefact } from "./personas-artefact";
 import { QuestionsArtefact } from "./questions-artefact";
+import { AnalysisArtefact } from "./analysis-artefact";
+import { StoriesArtefact } from "./stories-artefact";
 
 type Props = { projectId: string | null };
 
@@ -113,8 +115,16 @@ export function ArtefactsPane({ projectId }: Props) {
               hasAcceptedHypotheses={hasAcceptedHypotheses}
               onChange={refresh}
             />
-            <PhaseLockedArtefact name="Analysis" phase="Phase 4" />
-            <PhaseLockedArtefact name="Story angles" phase="Phase 5" />
+            <AnalysisArtefact
+              brief={brief}
+              hypotheses={hypotheses}
+              hasAcceptedHypotheses={hasAcceptedHypotheses}
+            />
+            <StoriesArtefact
+              brief={brief}
+              hypotheses={hypotheses}
+              hasAcceptedHypotheses={hasAcceptedHypotheses}
+            />
           </>
         )}
       </div>

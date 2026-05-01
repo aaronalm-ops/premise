@@ -19,6 +19,14 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
 
   const generate = async () => {
     if (!brief) return;
+    // U-8: confirmation on destructive regenerate. Existing proposed
+    // hypotheses are deleted; accepted/rejected survive.
+    if (hypotheses.some((h) => h.status === "proposed")) {
+      const ok = window.confirm(
+        `Regenerate will delete the ${hypotheses.filter((h) => h.status === "proposed").length} currently-proposed hypotheses (accepted and rejected ones are kept). Continue?`,
+      );
+      if (!ok) return;
+    }
     setGenerating(true);
     setError(null);
     try {
@@ -35,6 +43,24 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
     } finally {
       setGenerating(false);
     }
+  };
+
+  const acceptAllProposed = async () => {
+    if (buckets.proposed.length === 0) return;
+    const ok = window.confirm(
+      `Accept all ${buckets.proposed.length} proposed hypotheses?`,
+    );
+    if (!ok) return;
+    await Promise.all(
+      buckets.proposed.map((h) =>
+        fetch(`/api/hypotheses/${h.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "accepted" }),
+        }),
+      ),
+    );
+    onChange();
   };
 
   const buckets = {
@@ -56,17 +82,27 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
               : `${buckets.accepted.length} accepted · ${buckets.proposed.length} proposed · ${buckets.rejected.length} rejected`}
           </span>
         </div>
-        <button
-          onClick={generate}
-          disabled={!brief || generating}
-          className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[10px] font-medium uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {generating
-            ? "Generating…"
-            : hypotheses.length === 0
-              ? "Generate hypotheses"
-              : "Regenerate proposed"}
-        </button>
+        <div className="flex items-center gap-1">
+          {buckets.proposed.length > 1 && (
+            <button
+              onClick={acceptAllProposed}
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100"
+            >
+              Accept all
+            </button>
+          )}
+          <button
+            onClick={generate}
+            disabled={!brief || generating}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[10px] font-medium uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {generating
+              ? "Generating…"
+              : hypotheses.length === 0
+                ? "Generate hypotheses"
+                : "Regenerate proposed"}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3 px-4 py-3">
@@ -162,12 +198,25 @@ function HypothesisCard({
   );
 
   const setStatus = async (status: HypothesisStatus) => {
+    // P-2: capture optional rejection reason. null = user cancelled, "" = submit blank.
+    let rejection_reason: string | null | undefined;
+    if (status === "rejected") {
+      const input = window.prompt(
+        "Why are you rejecting this hypothesis? (optional — leave blank to skip; helps Premise tune over time)",
+        "",
+      );
+      if (input === null) return; // cancelled
+      rejection_reason = input.trim() || null;
+    } else {
+      // Clear any previous rejection reason if un-rejecting.
+      rejection_reason = null;
+    }
     setBusy(status);
     try {
       const r = await fetch(`/api/hypotheses/${h.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, rejection_reason }),
       });
       if (r.ok) onChange();
     } finally {

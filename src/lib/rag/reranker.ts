@@ -1,21 +1,34 @@
+// Reranker — second pass that prunes top-k retrieved chunks down to top-n
+// truly relevant ones. Uses tool_use with a strict schema (L-4): the model
+// MUST call `pick_relevant_chunks` with the indices it deems relevant. No more
+// brittle free-text parsing.
+
 import { MODELS } from "@/lib/llm/anthropic";
 import { tracedMessagesCreate, type TraceContext } from "@/lib/telemetry/tracer";
 import type { RetrievedChunk } from "@/lib/rag/types";
 
-const RERANKER_SYSTEM = `You are a research assistant evaluating which retrieved text chunks are actually relevant to answering a researcher's question.
+const RERANKER_SYSTEM = `You evaluate which retrieved text chunks are actually relevant to answering a researcher's question. Return only the chunks that contain information that DIRECTLY helps answer the question. Skip chunks that are merely on a similar topic.
 
-You will be given a question and a numbered list of candidate chunks. Your job is to identify which chunks contain information that directly helps answer the question.
+Call pick_relevant_chunks with the chunk numbers (1-indexed) in order of relevance. Return an empty list if no chunks are relevant.`;
 
-Output the relevant chunk numbers ONLY, comma-separated, in order of relevance.
-
-If NONE of the chunks are relevant, output exactly: NONE
-
-Examples:
-- "3, 1, 7"
-- "2"
-- "NONE"
-
-Do not output anything else. No explanation. No preamble. Just the numbers or NONE.`;
+const RERANKER_TOOL = {
+  name: "pick_relevant_chunks",
+  description:
+    "Returns the chunk numbers that directly help answer the question, in order of relevance.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      relevant_chunk_numbers: {
+        type: "array",
+        description:
+          "1-indexed chunk numbers, ordered by relevance (most relevant first). Empty if no chunks are relevant.",
+        items: { type: "integer", minimum: 1 },
+      },
+    },
+    required: ["relevant_chunk_numbers"],
+  },
+  cache_control: { type: "ephemeral" as const },
+};
 
 export async function rerank(
   question: string,
@@ -33,14 +46,10 @@ export async function rerank(
   const response = await tracedMessagesCreate(
     {
       model: MODELS.haiku,
-      max_tokens: 100,
-      system: [
-        {
-          type: "text",
-          text: RERANKER_SYSTEM,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
+      max_tokens: 200,
+      system: [{ type: "text", text: RERANKER_SYSTEM }],
+      tools: [RERANKER_TOOL],
+      tool_choice: { type: "tool", name: RERANKER_TOOL.name },
       messages: [
         {
           role: "user",
@@ -51,17 +60,14 @@ export async function rerank(
     context,
   );
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
+  const toolBlock = response.content.find((b) => b.type === "tool_use");
+  if (!toolBlock || toolBlock.type !== "tool_use") {
     return chunks.slice(0, keepTop);
   }
 
-  const raw = textBlock.text.trim();
-  if (raw.toUpperCase() === "NONE") return [];
-
-  const indices = raw
-    .split(",")
-    .map((s) => parseInt(s.trim(), 10) - 1)
+  const data = toolBlock.input as { relevant_chunk_numbers?: number[] };
+  const indices = (data.relevant_chunk_numbers ?? [])
+    .map((n) => n - 1)
     .filter((i) => Number.isInteger(i) && i >= 0 && i < chunks.length);
 
   const seen = new Set<number>();

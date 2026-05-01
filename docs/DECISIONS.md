@@ -1211,8 +1211,181 @@ Public library leaks copyrighted content: legal exposure. Curation is the only d
 
 ---
 
+## D-034 — Phase 4: LLM-driven analysis with hypothesis verdicts and emergent patterns
+
+### The story
+
+Every wave of fieldwork ends the same way. Data lands on the desk. Senior researcher stares at it for an hour. Out comes a debrief structured around three sections, every time:
+
+1. **Did each hypothesis hold?** Confirmed, refuted, or inconclusive — with a few specific data signals supporting the verdict.
+2. **What did the data shout that wasn't asked?** The emergent patterns — usually the most valuable findings.
+3. **What couldn't this study tell us?** The honest caveats — small n, missing segments, response biases.
+
+That's the analysis chapter. It's the same shape across studies. It's also the chapter that takes two days to write and produces 80% of the deck's value.
+
+Phase 4 is Premise's version of that chapter — done in 90 seconds, structurally honest, citing specific evidence from whatever data the researcher uploaded.
+
+### What we built
+
+- **Schema (migration 0008)** — `analyses` table (one per brief, uniqued at the schema level so re-runs replace not duplicate) + `analysis_data` table (raw uploaded sources: CSV pasted as text, transcripts, notes, file uploads — all stored as text, the LLM parses on read).
+- **Generator** — Sonnet with forced tool_use, same chassis as every other generation in the product (D-018 reuse). Reads brief + accepted hypotheses + accepted personas + selected question variants + uploaded data. Produces:
+  - Per-hypothesis verdicts (confirmed / refuted / inconclusive) with confidence + summary + supporting_evidence + per-verdict caveats
+  - 0-6 emergent patterns ranked by priority (5 = surprising-and-actionable)
+  - Study-wide caveats (sample size, missing segments, methodology issues)
+- **System prompt** ([analysis.ts](../src/lib/prompts/analysis.ts)) — load-bearing for the verdict-honesty discipline. Treats "inconclusive" as a first-class output. Forces specific evidence citation. Demands per-verdict caveats.
+- **API** — four routes: `GET /api/briefs/[id]/analysis`, `POST /analysis/data` (paste or multipart upload), `DELETE /analysis/data/[dataId]`, `POST /analysis/run`. Locked against double-clicks via `withGenerationLock` (D-028).
+- **UI** — Analysis artefact in the right pane. Upload + paste + remove data sources. "Run analysis" or "Re-run" button. Verdicts render as cards with verdict badge (confirmed/refuted/inconclusive) + confidence + hypothesis statement + summary + evidence + caveats. Emergent patterns render as priority-ordered emerald cards. Study caveats render as an amber callout. Failed runs surface the error inline.
+- **Closes P-4** — `selected_variant_id` finally has a downstream consumer. The analyser reads "the canonical question wording the researcher chose" and uses it to interpret data.
+
+### Why LLM-driven, not statsmodels
+
+We could have built a proper quant pipeline: parse CSV → infer schema → cross-tab → significance tests → Sonnet writes up findings. That's the rigorous version. It's also 5-10× more code, requires Python in the runtime, and only handles structured quant data.
+
+The LLM-driven version handles **everything in one shape**: structured CSV, transcripts, raw notes, mixed sources. The reranker-quality reasoning by Sonnet on a small-to-medium corpus produces verdicts that a senior researcher would write themselves — provided the data is small enough to fit context (we cap at ~80K chars, truncating the longest source first).
+
+For waves with thousands of respondents and rigorous stat tests required, the LLM verdict is a draft, not a substitute. The honest framing in the system prompt makes this explicit — verdicts are evidence-cited but the researcher remains responsible for the rigour.
+
+For a portfolio MVP, this is the right tradeoff. A "real-stats" follow-up is documented as a future v2 feature.
+
+### What's deliberately not built
+
+- **Server-side CSV parsing / schema inference** — the LLM does it. Eventually we'll add a Python tool-call for proper stats.
+- **Multi-wave longitudinal comparison** — one analysis per brief; comparing waves needs explicit cross-brief queries. Defer.
+- **Verbatim quote extraction with timestamps** — a structured "verbatim_quotes" output field would be valuable for qual-heavy waves. Defer to v2.
+- **Per-segment analysis** — the analyser handles what's in the data. Per-persona slicing requires structured demographic tagging on rows. Defer.
+- **Confidence interval / significance reporting** — the LLM uses descriptive confidence ("high/medium/low") not statistical confidence. For commercial use we'd want the latter; the prompt makes the limitation explicit.
+
+### The PM lesson
+
+**Replicate the senior expert's output shape, not their tool stack.** A naive "AI for research" build would copy the analyst's tools (SPSS, R, Python). The senior-PM move is to copy the *shape of what the senior expert produces* — which is verdicts, patterns, caveats — and use whatever tool produces that shape fastest. For most waves, the LLM does it well enough that the bottleneck stops being "writing the debrief" and starts being "validating the verdicts" — which is the part the researcher should be doing anyway.
+
+For an AI PM specifically: **find the highest-frequency artefact in the workflow you're augmenting**. For market researchers, the analysis chapter is *the* artefact. Optimise for its shape; treat the tooling underneath as a means.
+
+### What would break if we got it wrong
+
+Reach for a stats pipeline as v1: 5-10× build time, Python in the runtime, doesn't handle qual data, and the senior researcher still has to write the verdict and pattern sections by hand. The product feels like SPSS-with-extra-steps.
+
+Skip the per-verdict caveats: the bot returns "confirmed" with high confidence on a 50-respondent sample. Researcher trusts it. Client questions a finding. Researcher can't defend it because the bot didn't surface the sample-size limitation. Trust gone.
+
+Skip emergent patterns: the analyser becomes a verdict-machine, not a research-partner. The single most valuable thing about the senior researcher's debrief — "here's what you didn't ask but the data is shouting" — gets lost.
+
+---
+
+## D-035 — Tier 3-5 polish push (chat persistence, feedback loop, delete, batched verifier, tool-use reranker, prompt versioning)
+
+### The story
+
+After Phases 1-5 + the post-audit Tier 1+2 hardening, the product was *operable*. After this push it's *finished* — every gap a researcher would notice in the first hour of real use is closed. The audit had 22 items across Tier 3-5; this push closes 18 of them in one batch and explicitly defers 4 with rationale.
+
+This is the "polish chapter" of the case study — the difference between a demo that works in a screen recording and a tool a researcher chooses on Monday morning.
+
+### What we shipped (consolidated)
+
+**Chat persistence** (U-1) — new `ask_log` table; `/api/ask` writes to it; chat pane loads recent history on project mount; conversations now survive reload, switch projects, sign-outs.
+
+**User feedback loop** (P-2) — `rejection_reason` column on `hypotheses`, `personas`, and `questions`. When a researcher rejects, an inline prompt asks "why? (optional)" — captured for prompt-tuning signal. Validated server-side, sanitised on output.
+
+**Confirmation on destructive regenerate** (U-8) — every "Regenerate" button on hypotheses / personas / questions now confirms with the count of items being deleted. Accepted/rejected items survive (already covered by D-026); the confirmation makes the destructive scope visible.
+
+**Bulk operations** (Tier 3) — "Accept all" appears in each artefact header when ≥ 2 proposed items exist. Confirms before accepting. Concurrent PATCHes via `Promise.all`.
+
+**Delete affordance** (U-7) — `DELETE /api/projects/[id]` (refuses public libraries; owner-only) and `DELETE /api/documents/[id]` (project-access checked). Project switcher gets a "Delete" button when a project is selected; documents artefact gets a per-doc Delete button. Both gated by `window.confirm`.
+
+**Color disambiguation** (U-9) — persona's `under_represents` callout was amber, same as abstention banners. Now indigo. Same signal-strength, different meaning, no longer confusing the two.
+
+**Loading-state pipeline stages** (U-5) — chat-pane "thinking…" cycles through "Retrieving → Reranking → Drafting → Verifying" stages on a 2.2s timer so the researcher sees the work progressing instead of one static spinner.
+
+**Reranker as tool_use** (L-4) — replaced free-text comma-separated parsing (brittle) with forced `pick_relevant_chunks` schema. Schema-enforced; no more silent fallback when the model formats the response with extra text.
+
+**Verifier batched** (L-5) — moved from N Haiku calls per ask (one per claim) to one batched call returning a parallel array of booleans. ~5× cost reduction on the verify step; one fewer round-trip.
+
+**Researcher-controlled counts** (P-6) — `count` parameter on hypothesis / persona / question generators. Honoured in the user prompt. Schema bounds widened (3-10 / 2-7 / 3-12). UI count selector deferred — can be wired later when researchers ask for it.
+
+**Prompt versioning** (L-8) — central `PROMPT_VERSIONS` registry; every `api_calls` row tagged with `prompt_version`. Lets us diff outputs across prompt revisions when investigating regressions. All endpoints versioned; bumping happens at the registry, not in scattered code.
+
+**Cost regression in eval harness** — the eval CLI now queries `api_calls` for everything recorded during the run, prints total cost + cache hit rate at the end, persists into the result JSON. Diff across runs by reading two adjacent result files.
+
+**Variant pairing diversity** (R-3) — system prompt for `propose_questions` now explicitly demands methodological *contrast* between the 3 variants, with examples of strong vs. weak pairings.
+
+**Sample-size guidance in personas** (R-6) — system prompt for `propose_personas` now embeds quant/qual sample-size heuristics directly into description text.
+
+**Success metrics defined** (P-1) — [`docs/SUCCESS_METRICS.md`](SUCCESS_METRICS.md). Three layers: derivable today, light-instrumentation-with-clients, longitudinal-Series-A. Maps to P-3 partially.
+
+### What we deliberately deferred
+
+- **Streaming responses** (D-7) — touches every generation; large architectural shift. Right call if you want chat-style UX; today's loading-stage hints address the perceived-speed gap at much lower cost.
+- **Skip logic / question ordering / demographic block / screener** (R-5) — major UX work plus schema changes (conditional rendering, branching). Real questionnaire-builder territory. Defer until a researcher hits the gap on a real wave.
+- **Sonnet-as-judge eval probes** — needs careful rubric prompts and validation against ground truth. Premature without first running the deterministic harness against more real outputs.
+- **Editing personas + questions full content beyond status** (Tier 5) — partial (statement editing already shipped); full editing of all fields adds UI complexity for marginal value over the existing edit-statement affordance.
+- **Optimistic UI updates** (D-8) — would feel snappier but the existing flows are <300ms round-trip on most actions. Real value < real cost.
+
+### The PM lesson
+
+**A polish push is not a feature push — it's the closure of a backlog of small, individually-low-value items that collectively define whether the product feels finished.** Pre-polish: every researcher who tries Premise hits at least one rough edge in the first hour. Post-polish: the rough edges are gone, the researcher's attention can stay on their actual research.
+
+For an AI PM specifically: **measure what proportion of your audit items are "pre-launch must-fix" vs. "post-launch nice-to-have."** Tier 3-5 items are mostly the latter. Don't ship without Tier 1 (your trust commitments compound from the schema upward); do ship without all of Tier 5 (you'll learn which ones matter from real usage). The deliberate-defer list above is part of the practice.
+
+### What would break if we got it wrong
+
+Skip the deferrals: ship streaming + skip logic + judge evals all in one push and the typecheck takes 20 minutes, the deploy takes a half-hour, and the regression surface explodes. Audit items are not all equal; pick the ones that defend trust commitments first (already done in Tier 1+2), then close the ones that defend day-to-day usability (this push), then defer the architectural refactors until you have real users hitting them.
+
+Skip the polish entirely: Premise feels like a demo. Researchers try it, hit "regenerate ate my work" or "I wanted to delete this project" or "the chat history is gone after I closed the tab" or "I rejected this but couldn't tell the bot why" — and silently churn. The product never compounds.
+
+---
+
+## D-036 — Phase 5: story angles with mandatory "omits" disclosure
+
+### The story
+
+The end of every research wave isn't the analysis chapter — it's the *story*. Researcher takes the verdicts and emergent patterns, picks an angle, frames it for an audience, and outputs an article / deck / LinkedIn post / industry-press pitch. That framing step is where most of the real value gets delivered, and where most of the *quiet dishonesty* in research happens too — the framing chosen always omits something. The senior researcher knows what; the junior one often doesn't notice.
+
+Phase 5 makes the omission visible.
+
+### What we built
+
+`story_angles` table; angle generator (Sonnet, forced tool_use); outline drafter (Sonnet, structured output rendered to markdown). Each angle has:
+
+- **title** — the article headline
+- **target_audience** — named specifically (CMOs at consumer-brand parents, brand strategists at independent agencies). The narrower the audience, the sharper the angle.
+- **lede** — the opening 1-2 sentences
+- **beats** — three story beats (each a short paragraph)
+- **supporting_hypothesis_ids + supporting_emergent_patterns** — the evidence chain. Schema-enforced: every angle must cite something. No grounding = rejected.
+- **omits** — what this angle deliberately leaves out. Schema-enforced as required. Renders as an indigo callout in the UI so it's impossible to skip past.
+- **priority** — narrative strength (5 = most likely to land with named audience).
+
+Researcher accepts an angle → "Draft outline" button appears → Sonnet drafts a structured outline (subtitle, intro, 4-6 body sections, closing). The outline renders to markdown with the chosen angle's title, lede, audience, and a footer line that surfaces the omitted material so the author can choose to address it (or own the omission). Markdown is copy-able and downloadable as `.md`.
+
+### Why "omits" is mandatory
+
+Every story angle is a choice about what to lead with. Every choice leaves something out. The honest research tradition treats that omission as a feature — naming it sharpens the narrative and surfaces what the author still doesn't know. The dishonest tradition treats omissions as bugs to hide.
+
+We schema-enforce honest. The bot can't propose an angle without naming what it omits. The UI renders the omission in a colour distinct from the rest of the card so it never gets overlooked. The footer of every drafted outline carries the omission as a parenthetical note. The discipline is structural, not cultural.
+
+### What's deliberately not built
+
+- **Long-form full article generation** — the outline is the artefact. Writing the full piece is the researcher's job; the outline gives them the scaffolding. Generating the full article would dilute the "options not answers" principle (D-018) at the most expressive layer.
+- **Auto-publish to LinkedIn / Substack / Medium** — out of scope. Outline-as-markdown is the export; publication is a downstream researcher action.
+- **Multi-format export (Notion, Google Docs, deck templates)** — markdown covers ~90% of researcher workflows. Other formats are post-commercial polish.
+- **Per-section regeneration** — for now, re-drafting regenerates the whole outline. Section-level surgical regeneration is a follow-up if researchers ask for it.
+
+### The PM lesson
+
+**The most valuable AI-product features make implicit expert judgments explicit and unmissable.** Senior researchers always know what their framings omit; the value of putting the omission *in the schema* is that the bot can't gaslight a junior researcher into thinking the chosen angle is the *whole* story. This is the same pattern as `under_represents` for personas (D-019) — a structural enforcement of a discipline that experts internalise but junior users miss.
+
+For an AI PM specifically: **find the implicit expert judgment that separates "good" from "great" output in your domain, and make it a required field**. For research, omissions matter. For analysis, caveats matter. For hypotheses, citations matter. Each is a structural truth-tax that compounds product trust over time.
+
+### What would break if we got it wrong
+
+Skip the "omits" requirement: the bot generates beautiful, confident angles. Junior researchers ship them as-is. Three months later, a CMO asks "but what about Tier-3 cities?" and the researcher has no answer — the angle never named the gap. Trust gone.
+
+Skip the evidence-chain requirement: angles drift into pure speculation, often well-written enough to be persuasive. Bot-generated thought leadership without grounding is the failure mode every researcher fears about AI tools.
+
+Generate full articles instead of outlines: the bot's prose voice replaces the researcher's. The product becomes "AI writes my LinkedIn posts" and loses the "AI widens my option space, I keep the voice" positioning that D-018 / D-019 protect.
+
+---
+
 ## How to use this doc going forward
 
-- **Every new decision gets a numbered entry below.** D-034, D-035, etc.
+- **Every new decision gets a numbered entry below.** D-037, D-038, etc.
 - **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
 - **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.

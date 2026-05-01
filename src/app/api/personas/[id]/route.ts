@@ -26,7 +26,17 @@ export async function PATCH(
     const { id } = IdParam.parse(await params);
     await assertPersonaAccess(id, user.id);
     const body = UpdatePersonaBody.parse(await req.json());
-    const persona = await updatePersona({ id, status: body.status });
+    const persona = await updatePersona({
+      id,
+      status: body.status,
+      rejection_reason: body.rejection_reason,
+      name: body.name,
+      description: body.description,
+      demographic_profile: body.demographic_profile,
+      behavioural_profile: body.behavioural_profile,
+      under_represents: body.under_represents,
+      assumptions: body.assumptions,
+    });
     return NextResponse.json({ persona });
   } catch (err) {
     return safeError(err);

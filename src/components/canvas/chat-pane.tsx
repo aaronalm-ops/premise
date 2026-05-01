@@ -1,15 +1,54 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import type { AskResult, RetrievedChunk } from "@/lib/rag/types";
 
 type Props = { projectId: string | null };
 
+type HistoryEntry = AskResult & { id: string };
+
 export function ChatPane({ projectId }: Props) {
   const [question, setQuestion] = useState("");
-  const [result, setResult] = useState<AskResult | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingStage, setLoadingStage] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+
+  // Load chat history on project change (U-1: chat persistence).
+  useEffect(() => {
+    if (!projectId) {
+      setHistory([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects/${projectId}/ask-log`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const entries = (data.entries ?? []) as Array<{
+          id: string;
+          question: string;
+          answer: AskResult["answer"];
+          retrieved_chunks: AskResult["retrieved_chunks"];
+          used_chunk_ids: string[];
+          cost_estimate_usd: number;
+        }>;
+        setHistory(
+          entries.map((e) => ({
+            id: e.id,
+            question: e.question,
+            answer: e.answer,
+            retrieved_chunks: e.retrieved_chunks,
+            used_chunk_ids: e.used_chunk_ids,
+            cost_estimate_usd: e.cost_estimate_usd,
+          })),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   const submit = async () => {
     if (!projectId) {
@@ -20,8 +59,23 @@ export function ChatPane({ projectId }: Props) {
     if (!trimmed) return;
 
     setLoading(true);
+    setLoadingStage("Retrieving from corpus…");
     setError(null);
-    setResult(null);
+
+    // U-5: pipeline-stage hints. We don't have streaming, so we cycle through
+    // the stages on a timer to communicate that work is happening.
+    const stages = [
+      "Retrieving from corpus…",
+      "Reranking chunks…",
+      "Drafting answer with citations…",
+      "Verifying each claim…",
+    ];
+    let stageIdx = 0;
+    const timer = setInterval(() => {
+      stageIdx = Math.min(stageIdx + 1, stages.length - 1);
+      setLoadingStage(stages[stageIdx]);
+    }, 2200);
+
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
@@ -32,12 +86,17 @@ export function ChatPane({ projectId }: Props) {
       if (!res.ok) {
         setError(data.error ?? `Request failed (${res.status})`);
       } else {
-        setResult(data as AskResult);
+        // Append to history so the user sees a scrollable thread.
+        const entry: HistoryEntry = { ...(data as AskResult), id: crypto.randomUUID() };
+        setHistory((h) => [...h, entry]);
+        setQuestion("");
       }
     } catch (err) {
       setError((err as Error).message);
     } finally {
+      clearInterval(timer);
       setLoading(false);
+      setLoadingStage("");
     }
   };
 
@@ -59,13 +118,17 @@ export function ChatPane({ projectId }: Props) {
       </div>
 
       <div className="premise-scroll min-h-0 flex-1 space-y-4 overflow-y-scroll px-6 py-6">
-        {!result && !loading && !error && (
+        {history.length === 0 && !loading && !error && (
           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] px-4 py-3 text-sm text-[var(--color-muted-foreground)]">
             Ask any question. Premise will retrieve from your project&apos;s
             corpus and either answer with citations or honestly tell you
-            what&apos;s missing.
+            what&apos;s missing. {projectId && "Conversation history is saved per-project."}
           </div>
         )}
+
+        {history.map((entry) => (
+          <AnswerView key={entry.id} result={entry} />
+        ))}
 
         {error && (
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
@@ -75,14 +138,12 @@ export function ChatPane({ projectId }: Props) {
 
         {loading && (
           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] px-4 py-3 text-sm text-[var(--color-muted-foreground)]">
-            <span className="animate-pulse">Premise is thinking…</span>
-            <p className="mt-1 text-xs opacity-70">
-              Retrieving · reranking · drafting · verifying
+            <span className="animate-pulse">{loadingStage || "Premise is thinking…"}</span>
+            <p className="mt-1 text-[10px] opacity-70">
+              Retrieve → rerank → draft → verify
             </p>
           </div>
         )}
-
-        {result && <AnswerView result={result} />}
       </div>
 
       <div className="space-y-2 border-t border-[var(--color-border)] px-6 py-4">

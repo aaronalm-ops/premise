@@ -112,6 +112,11 @@ export type EvalRunSummary = {
   failed: number;
   by_type: Record<ProbeType, { total: number; passed: number; failed: number }>;
   results: ProbeResult[];
+  cost?: {
+    total_usd: number;
+    call_count: number;
+    cache_hit_rate: number;
+  };
 };
 
 export type EvalConfig = {

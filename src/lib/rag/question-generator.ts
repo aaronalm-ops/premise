@@ -19,8 +19,8 @@ const QUESTION_TOOL = {
     properties: {
       questions: {
         type: "array",
-        minItems: 4,
-        maxItems: 8,
+        minItems: 3,
+        maxItems: 12,
         items: {
           type: "object",
           properties: {
@@ -106,6 +106,7 @@ export type GenerateQuestionsInput = {
   acceptedPersonas: Persona[];
   projectId: string;
   briefId?: string | null;
+  count?: number; // 3-12, default 6
 };
 
 export type GenerateQuestionsResult = {
@@ -133,7 +134,8 @@ export async function generateQuestions(
           .join("\n")
       : "(none accepted yet)";
 
-  const userPrompt = `# Brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypothesesText}\n\n# Recommended personas\n${personasText}\n\nCall propose_questions now with 4-8 questions, each with 3 variants.`;
+  const count = Math.min(12, Math.max(3, input.count ?? 6));
+  const userPrompt = `# Brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypothesesText}\n\n# Recommended personas\n${personasText}\n\nCall propose_questions now with exactly ${count} questions, each with 3 variants.`;
 
   const response = await tracedMessagesCreate(
     {

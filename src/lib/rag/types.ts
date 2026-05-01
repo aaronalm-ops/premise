@@ -196,3 +196,93 @@ export type QuestionDraft = {
   hypothesis_id: string | null;
   variants: QuestionVariantDraft[];
 };
+
+// ===== Phase 4: analysis =====
+
+export type AnalysisStatus = "idle" | "running" | "complete" | "failed";
+
+export type AnalysisSourceType = "csv" | "transcript" | "paste" | "notes";
+
+export type AnalysisData = {
+  id: string;
+  analysis_id: string;
+  brief_id: string;
+  project_id: string;
+  source_type: AnalysisSourceType;
+  title: string;
+  content: string;
+  char_count: number;
+  created_at: string;
+};
+
+export type HypothesisVerdict = {
+  hypothesis_id: string;
+  verdict: "confirmed" | "refuted" | "inconclusive";
+  confidence: "high" | "medium" | "low";
+  summary: string;
+  supporting_evidence: string;
+  caveats: string[];
+};
+
+export type EmergentPattern = {
+  pattern: string;
+  description: string;
+  evidence: string;
+  why_interesting: string;
+  priority: 1 | 2 | 3 | 4 | 5;
+};
+
+export type Analysis = {
+  id: string;
+  brief_id: string;
+  project_id: string;
+  status: AnalysisStatus;
+  hypothesis_verdicts: HypothesisVerdict[];
+  emergent_patterns: EmergentPattern[];
+  caveats: string[];
+  last_run_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AnalysisWithData = Analysis & { data: AnalysisData[] };
+
+export type AnalysisGenerationResult = {
+  hypothesis_verdicts: HypothesisVerdict[];
+  emergent_patterns: EmergentPattern[];
+  caveats: string[];
+};
+
+// ===== Phase 5: story angles =====
+
+export type StoryAngle = {
+  id: string;
+  brief_id: string;
+  project_id: string;
+  ordinal: number;
+  title: string;
+  target_audience: string;
+  lede: string;
+  beats: string[];
+  supporting_hypothesis_ids: string[];
+  supporting_emergent_patterns: string[];
+  omits: string;
+  priority: 1 | 2 | 3 | 4 | 5;
+  status: HypothesisStatus;
+  draft_outline: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StoryAngleDraft = {
+  title: string;
+  target_audience: string;
+  lede: string;
+  beats: string[];
+  supporting_hypothesis_ids: string[];
+  supporting_emergent_patterns: string[];
+  omits: string;
+  priority: 1 | 2 | 3 | 4 | 5;
+};
