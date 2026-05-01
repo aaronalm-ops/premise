@@ -1156,8 +1156,63 @@ Skipping `claim_orphan_projects`: Aaron signs in and his existing projects vanis
 
 ---
 
+## D-033 — Public library: a shared corpus to solve the cold-start problem
+
+### The story
+
+Premise's whole value is "hypotheses grounded in YOUR research." But on day 1, a new user has no research uploaded. Strict-RAG runs against an empty corpus and produces nothing. The product feels broken on first contact. Every new visitor bounces.
+
+This is the cold-start problem every "your data" AI product faces. The fix isn't to weaken the strict-RAG promise — it's to give every user a useful *starter* corpus, and let them layer their own work on top.
+
+### What we built
+
+- A boolean flag `is_public` on projects. The single shared library is one project with `is_public = true` and `owner_id = NULL`.
+- The retrieval layer (`match_chunks`) now takes an *array* of project IDs. We always pass the user's project ID + every public library's project ID. Public-library chunks compete against the user's chunks in the reranker; the most relevant wins.
+- Citation chips render the **document title** (not just chunk ID) and a **"Public" badge** on chunks sourced from a public library. The researcher always sees where their answer came from.
+- A `+ Public library` section in the Documents artefact lets the user browse what's in the shared corpus (read-only).
+- A seed script (`npm run seed-public-library`) creates and registers the library project. Aaron curates what goes into it via the existing `npm run ingest` CLI.
+- Confidentiality (D-016) is preserved: only project IDs explicitly passed to `match_chunks` can contribute. Cross-user-private leakage remains structurally impossible.
+
+### Why one library, not many
+
+For v1, simplest wins. One shared library, auto-included in every user's retrievals. No subscription model, no topic tagging, no opt-out.
+
+For v2 (if commercial pressure justifies it):
+- Multiple libraries tagged by topic ("AI tooling", "Sustainability", "Methodology")
+- Per-project subscription: user picks which libraries are relevant
+- Premium libraries (paid topic packs)
+- User-contributed libraries (community-shared)
+
+The schema (`is_public boolean`) doesn't preclude any of those — they layer on top.
+
+### What goes IN the public library
+
+Aaron curates. Only content where ownership/licence is clear:
+- Methodology references (research-design textbook chapters in the public domain, sampling theory, qualitative coding guides)
+- Open-licence industry reports (government statistical agencies, NGOs, Creative Commons research)
+- Premise's own docs (case study, decisions log, eval methodology) — meta but useful
+- His own published writing (LinkedIn posts, blog posts, talks)
+
+Avoid: copyrighted client work, paid-research extracts, anything under NDA. Mismatched licensing in a *public* corpus is a much bigger problem than in a private one.
+
+### The PM lesson
+
+**Cold-start is a content problem, not a feature problem.** It's tempting to think "the bot needs to be smarter." Almost always, the bot is fine — the corpus is missing. Spending engineering time on prompt-tuning when new users have an empty corpus solves the wrong problem.
+
+For an AI PM specifically: **think about your product on day-1 of a new user**. If "the magic" requires their data, you have a cold-start problem; budget product time to solve it via either (a) a public seed, (b) a starter pack, or (c) a one-time onboarding flow that gets the user's data in fast. Don't ship without one.
+
+### What would break if we got it wrong
+
+No public library: every new user's first hypothesis-generation produces "the corpus contains no chunks relevant to this brief" and the demo is dead. Trust never establishes.
+
+Public library too generic: hypotheses become generic. The "your research grounds your hypotheses" pitch dilutes. Mitigate by curating tightly — methodology over content, frameworks over conclusions.
+
+Public library leaks copyrighted content: legal exposure. Curation is the only defence; ingest only what's genuinely public/open-licence.
+
+---
+
 ## How to use this doc going forward
 
-- **Every new decision gets a numbered entry below.** D-033, D-034, etc.
+- **Every new decision gets a numbered entry below.** D-034, D-035, etc.
 - **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
 - **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DocumentRecord } from "@/lib/rag/types";
+import { PublicLibrariesSection } from "./public-libraries-section";
 
 type Props = {
   projectId: string;
@@ -122,6 +123,8 @@ export function DocumentsArtefact({ projectId }: Props) {
       </div>
 
       <div className="space-y-3 px-4 py-3">
+        <PublicLibrariesSection />
+
         <div className="flex items-center gap-1">
           <input
             type="url"

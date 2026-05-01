@@ -24,6 +24,9 @@ export type DocumentRecord = {
 export type RetrievedChunk = {
   id: string;
   document_id: string;
+  document_title: string | null;
+  project_id: string;
+  is_public_source: boolean;
   content: string;
   ordinal: number;
   similarity: number;

@@ -228,12 +228,25 @@ function ConfidenceBadge({
 }
 
 function CitationChip({ id, chunk }: { id: string; chunk?: RetrievedChunk }) {
+  const isPublic = chunk?.is_public_source ?? false;
+  const label = chunk?.document_title?.trim() || id.slice(0, 8);
+  const truncated = label.length > 32 ? `${label.slice(0, 32)}…` : label;
+
   return (
     <span
-      className="rounded-full border border-[var(--color-border)] bg-[var(--color-muted)] px-2 py-0.5 font-mono text-[10px] text-[var(--color-muted-foreground)]"
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] ${
+        isPublic
+          ? "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-100"
+          : "border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"
+      }`}
       title={chunk?.content.slice(0, 200) ?? id}
     >
-      {id.slice(0, 8)}
+      {isPublic && (
+        <span className="font-semibold uppercase tracking-wider opacity-80">
+          Public
+        </span>
+      )}
+      <span className="font-mono">{truncated}</span>
     </span>
   );
 }

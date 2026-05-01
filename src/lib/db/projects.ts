@@ -1,6 +1,39 @@
 import { getSupabaseServer } from "@/lib/db/supabase";
 import type { Confidentiality, Project } from "@/lib/rag/types";
 
+// Public-library cache. Public projects change rarely; refresh every 60s.
+let publicLibraryCache: { ids: string[]; expiresAt: number } | null = null;
+const PUBLIC_CACHE_TTL_MS = 60_000;
+
+export async function getPublicLibraryIds(): Promise<string[]> {
+  if (publicLibraryCache && publicLibraryCache.expiresAt > Date.now()) {
+    return publicLibraryCache.ids;
+  }
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("is_public", true);
+  if (error) {
+    console.warn("getPublicLibraryIds:", error.message);
+    return [];
+  }
+  const ids = (data ?? []).map((p) => (p as { id: string }).id);
+  publicLibraryCache = { ids, expiresAt: Date.now() + PUBLIC_CACHE_TTL_MS };
+  return ids;
+}
+
+export async function listPublicLibraries(): Promise<Project[]> {
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("is_public", true)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`listPublicLibraries: ${error.message}`);
+  return (data ?? []) as Project[];
+}
+
 // Lists projects visible to the user: their own + any orphan (NULL-owner)
 // projects from before auth shipped (D-032).
 export async function listProjects(userId: string): Promise<Project[]> {
