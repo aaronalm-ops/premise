@@ -92,6 +92,16 @@ export default function LoginPage() {
         <p className="mt-8 text-[10px] text-[var(--color-muted-foreground)]">
           Premise — AI co-pilot for market and consumer insights researchers.
         </p>
+        <p className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">
+          Not ready to sign in?{" "}
+          <a
+            href="/cost-calculator"
+            className="underline hover:text-[var(--color-foreground)]"
+          >
+            See what one study costs to run
+          </a>
+          .
+        </p>
       </div>
     </div>
   );

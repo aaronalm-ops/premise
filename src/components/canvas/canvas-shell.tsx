@@ -28,6 +28,13 @@ export function CanvasShell({ userEmail }: Props) {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <a
+            href="/cost-calculator"
+            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+            title="Cost-at-scale calculator — what one study costs to run"
+          >
+            Costs
+          </a>
           <CostBadge projectId={projectId} />
           <ProjectSwitcher selectedId={projectId} onSelect={setProjectId} />
           <AccountMenu email={userEmail} />
