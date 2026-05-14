@@ -38,6 +38,7 @@ For each question, choose 3 variants from the types below — pick the 3 that be
 7. response_format: short label like "5-point likert", "open-ended", "single-choice", "ranked list of 5".
 8. response_options: array of choices when applicable; empty array for open-ended or scale-only.
 9. Cap: 1-2 questions per hypothesis. If two hypotheses share a measurement need, generate one question that serves both.
+10. **Exactly one variant per question MUST have \`is_recommended: true\`.** Mark the variant whose phrasing best fits the hypothesis being tested — the variant a senior researcher would most likely pick given the construct and the persona context. The other two variants have \`is_recommended: false\`. This is the *fatigue-default* (D-040): the UI surfaces the recommended variant first, so when a tired researcher accepts the top option they're accepting a defensible choice, not a random one. Mark thoughtfully; this is the variant the product effectively picks if the researcher doesn't actively override.
 
 # Style
 

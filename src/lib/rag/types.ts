@@ -78,6 +78,13 @@ export type Hypothesis = {
   priority: 1 | 2 | 3 | 4 | 5;
   status: HypothesisStatus;
   notes: string | null;
+  // D-041 (taskforce 9a): if a hypothesis is revised AFTER an analysis has
+  // run for its brief, the user is required to provide a rationale and
+  // these two fields are populated. The story-angle generator reads this
+  // to auto-append an integrity note to any angle whose evidence chain
+  // touches the revised hypothesis.
+  revised_after_analysis: boolean;
+  revision_rationale: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -151,6 +158,15 @@ export const VARIANT_TYPES: VariantType[] = [
   "maxdiff",
 ];
 
+// selection_mode is set server-side when the question's selected_variant_id
+// is updated:
+// - null   = this variant was not chosen (or no variant has been chosen yet)
+// - default = chosen variant matched is_recommended (researcher accepted the
+//   bot's pick — fatigue-default is a defensible default, D-040)
+// - active = chosen variant did NOT match is_recommended (researcher
+//   actively overrode the recommendation — an explicit choice)
+export type VariantSelectionMode = "default" | "active" | null;
+
 export type QuestionVariant = {
   id: string;
   question_id: string;
@@ -161,6 +177,8 @@ export type QuestionVariant = {
   response_options: string[];
   what_it_elicits: string | null;
   caveat: string | null;
+  is_recommended: boolean;
+  selection_mode: VariantSelectionMode;
   created_at: string;
 };
 
@@ -171,6 +189,7 @@ export type QuestionVariantDraft = {
   response_options: string[];
   what_it_elicits: string;
   caveat: string;
+  is_recommended: boolean;
 };
 
 export type Question = {
@@ -285,4 +304,38 @@ export type StoryAngleDraft = {
   supporting_emergent_patterns: string[];
   omits: string;
   priority: 1 | 2 | 3 | 4 | 5;
+};
+
+// ===== Recommendation artefact (D-039, taskforce critique 5a-5c) =====
+//
+// Sits between analysis and story angles. Single decision-shaped output
+// for a C-suite reader: one causal insight, one specific action, one
+// calibrated confidence, with explicit caveats.
+
+export type RecommendationConfidence = "high" | "medium" | "low";
+
+export type Recommendation = {
+  id: string;
+  brief_id: string;
+  project_id: string;
+  ordinal: number;
+  insight: string;              // causal: "the change in X is driven by Y"
+  recommended_action: string;   // specific: "do Z by Q"
+  confidence: RecommendationConfidence;
+  supporting_hypothesis_ids: string[];
+  supporting_emergent_patterns: string[];
+  caveats: string[];
+  status: HypothesisStatus;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RecommendationDraft = {
+  insight: string;
+  recommended_action: string;
+  confidence: RecommendationConfidence;
+  supporting_hypothesis_ids: string[];
+  supporting_emergent_patterns: string[];
+  caveats: string[];
 };

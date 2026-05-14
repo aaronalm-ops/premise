@@ -274,3 +274,41 @@ Questionnaire-design power-user features.
 | Tier 3 | UX completeness | 8.5 days |
 | Tier 4 | AI PM rigor | 13 days |
 | Tier 5 | Methodological depth | 17.5 days |
+
+---
+
+## Audit #2 — taskforce critique round (2026-05-14)
+
+Conducted *after* shipping all five user-flow phases. Distinct in shape from Audit #1: instead of five internal lenses (Researcher / LLM-builder / Developer / UI-UX / AI-PM), we convened a ten-expert imagined roundtable across research methodology, AI/ML, privacy, narrative strategy, and product (see `docs/TASKFORCE_CRITIQUE.md`). The conclusions surfaced 31 distinct critiques; 10 were prioritised; all 10 were implemented across 5 execution waves between 2026-05-14 and 2026-05-14.
+
+### Probe-harness additions in this round
+
+| New probe type | Count | What it catches | Decision |
+|---|---|---|---|
+| `citation-accuracy` | 5 | Verifier drift / false-positives (Sonnet judge cross-checks the Haiku verifier) | D-042 |
+
+The five fixtures reuse the existing golden-qa corpus questions; the *expectation* shape differs — instead of testing whether the answer contains substring X, we test whether the cited chunks DIRECTLY support every claim in the answer (independent Sonnet judge, stricter prompt). This is the probe the imagined AI-safety researcher (taskforce critique 8a) asked for: *"What's your false-citation rate?"*. Baseline expectation per fixture: `min_support_rate: 1.0` (every claim must be supported).
+
+### Probe-set total
+
+| Probe type | Count |
+|---|---|
+| golden-qa | 5 |
+| abstention | (existing) |
+| hallucination | (existing) |
+| hypothesis-quality | (existing) |
+| persona-quality | (existing) |
+| confidentiality | (existing) |
+| **citation-accuracy** | **5 (new)** |
+
+### Known eval gaps after Audit #2 (deliberately deferred)
+
+| # | Gap | Why deferred |
+|---|---|---|
+| E-1 | No story-angle quality probe | Subjective quality; needs human-scored baseline before automating |
+| E-2 | No recommendation-quality probe | Same as E-1; recommendation artefact just shipped (D-039) — needs real-corpus data before judging at scale |
+| E-3 | No variant-recommendation accuracy probe | D-040 just shipped; selection_mode audit trail will provide the signal organically as the product is used |
+| E-4 | No adversarial / prompt-injection probes | Taskforce 8c flagged. Worth a dedicated probe type when the product enters a real user environment |
+| E-5 | No model-regression A/B (Haiku 4.6 vs 4.7) | Anthropic doesn't ship that often; do it once per new model, not as a permanent CI gate (taskforce 8d) |
+
+These are flagged here so the next eval audit can decide whether to address them.

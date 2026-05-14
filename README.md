@@ -7,7 +7,7 @@
 
 An AI co-pilot for market and consumer insights researchers. It walks you through the full research lifecycle: **brief → hypotheses → questionnaire (with persona recommendations & question variants) → data analysis → story angles**, and grounds every step in your historical research via strict, citation-only RAG.
 
-> **Status:** Phase 0 (foundations). Stack chosen, scaffold not yet built. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status:** All five user-flow phases shipped end-to-end (brief → hypotheses → personas → questionnaire → analysis → story angles). 37 decisions logged. Live demo above; full plan in [docs/ROADMAP.md](docs/ROADMAP.md); launch pitch in [docs/PITCH.md](docs/PITCH.md).
 
 > **Owner:** Aaron — Researcher / Analyst transitioning to AI Product Manager. This repo is both a portfolio piece *and* an in-progress commercial product. The build itself is the case study.
 >
@@ -21,7 +21,7 @@ An AI co-pilot for market and consumer insights researchers. It walks you throug
 
 ## Why "strict mode" matters
 
-The RAG layer enforces **zero fabrication**. Every claim must cite a source chunk; if the corpus doesn't support an answer, the bot says so explicitly. This is the single most important behavioural commitment of the product.
+The RAG layer enforces **zero fabrication** as the floor. Every claim must cite a source chunk; if the corpus doesn't support an answer, the bot abstains and names what would close the gap. Above the floor, each surviving claim carries an explicit confidence level — calibrated estimation, not refusal. The bot won't fabricate; it also won't shrug. This is the load-bearing behavioural commitment of the product.
 
 ## Stack (locked v0)
 

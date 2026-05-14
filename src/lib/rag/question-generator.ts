@@ -74,6 +74,11 @@ const QUESTION_TOOL = {
                     type: "string",
                     description: "One sentence on the bias or weakness.",
                   },
+                  is_recommended: {
+                    type: "boolean",
+                    description:
+                      "True for the single variant that best fits the hypothesis being tested — the variant a senior researcher would most likely pick. Exactly one variant per question must be true.",
+                  },
                 },
                 required: [
                   "variant_type",
@@ -82,6 +87,7 @@ const QUESTION_TOOL = {
                   "response_options",
                   "what_it_elicits",
                   "caveat",
+                  "is_recommended",
                 ],
               },
             },
@@ -166,19 +172,40 @@ export async function generateQuestions(
   const validHypothesisIds = new Set(input.acceptedHypotheses.map((h) => h.id));
 
   const drafts = data.questions
-    .map((q) => ({
-      ...q,
-      hypothesis_id:
-        q.hypothesis_id && validHypothesisIds.has(q.hypothesis_id)
-          ? q.hypothesis_id
-          : null,
-      variants: (q.variants ?? []).filter(
+    .map((q) => {
+      const variants = (q.variants ?? []).filter(
         (v) =>
           VARIANT_TYPES.includes(v.variant_type) &&
           typeof v.statement === "string" &&
           v.statement.trim().length > 0,
-      ),
-    }))
+      );
+
+      // D-040: enforce exactly one is_recommended per question. The prompt
+      // requires it, but harden post-hoc — if the model returns zero or
+      // multiple flagged, fix it here so the audit trail downstream is
+      // never ambiguous. Fallback: the first variant takes the flag.
+      const flaggedCount = variants.filter((v) => v.is_recommended === true).length;
+      const normalisedVariants = variants.map((v, idx) => ({
+        ...v,
+        is_recommended:
+          flaggedCount === 1
+            ? Boolean(v.is_recommended)
+            : flaggedCount === 0
+              ? idx === 0
+              : // multiple flagged → keep only the first
+                Boolean(v.is_recommended) &&
+                variants.findIndex((x) => x.is_recommended === true) === idx,
+      }));
+
+      return {
+        ...q,
+        hypothesis_id:
+          q.hypothesis_id && validHypothesisIds.has(q.hypothesis_id)
+            ? q.hypothesis_id
+            : null,
+        variants: normalisedVariants,
+      };
+    })
     .filter((q) => q.variants.length === 3);
 
   return { drafts };

@@ -10,9 +10,10 @@ export const PROMPT_VERSIONS = {
   "rerank": "v2-2026-05-01",             // tool_use reranker (D-035 / L-4)
   "hypothesis-gen": "v2-2026-05-01",     // researcher-controlled count (P-6)
   "persona-gen": "v3-2026-05-01",        // sample-size guidance (R-6)
-  "question-gen": "v3-2026-05-01",       // variant pairing diversity (R-3) + count
+  "question-gen": "v4-2026-05-14",       // D-040: one variant marked is_recommended per question (fatigue-default)
   "analysis-gen": "v1-2026-05-01",       // initial Phase 4
-  "story-gen": "v1-2026-05-01",          // initial Phase 5
+  "recommendation-gen": "v1-2026-05-14", // D-039 initial Phase 6 Recommendation artefact
+  "story-gen": "v3-2026-05-14",          // D-039 cascade: angles ladder up to accepted Recommendation when present
   "story-outline": "v1-2026-05-01",      // initial Phase 5 outline draft
   "embed-doc": "voyage-3",
   "embed-query": "voyage-3",

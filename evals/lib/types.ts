@@ -6,7 +6,8 @@ export type ProbeType =
   | "hallucination"
   | "hypothesis-quality"
   | "persona-quality"
-  | "confidentiality";
+  | "confidentiality"
+  | "citation-accuracy";
 
 export type GoldenQaProbe = {
   id: string;
@@ -86,13 +87,30 @@ export type ConfidentialityProbe = {
   };
 };
 
+// D-042 (taskforce 8a): asks a question, then for every claim returned by
+// the pipeline, uses an INDEPENDENT Sonnet judge (separate from the Haiku
+// verifier that runs during generation) to check whether the cited chunks
+// actually support the claim. Detects verifier drift and false-positives
+// in the existing chassis.
+export type CitationAccuracyProbe = {
+  id: string;
+  type: "citation-accuracy";
+  description: string;
+  question: string;
+  expects: {
+    min_claims: number;             // skip judging if generation produced fewer
+    min_support_rate: number;       // fraction (0.0–1.0) of claims that must be Sonnet-supported
+  };
+};
+
 export type AnyProbe =
   | GoldenQaProbe
   | AbstentionProbe
   | HallucinationProbe
   | HypothesisQualityProbe
   | PersonaQualityProbe
-  | ConfidentialityProbe;
+  | ConfidentialityProbe
+  | CitationAccuracyProbe;
 
 export type ProbeResult = {
   probe_id: string;

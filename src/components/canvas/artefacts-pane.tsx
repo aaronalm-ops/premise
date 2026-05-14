@@ -13,6 +13,7 @@ import { HypothesesArtefact } from "./hypotheses-artefact";
 import { PersonasArtefact } from "./personas-artefact";
 import { QuestionsArtefact } from "./questions-artefact";
 import { AnalysisArtefact } from "./analysis-artefact";
+import { RecommendationsArtefact } from "./recommendations-artefact";
 import { StoriesArtefact } from "./stories-artefact";
 
 type Props = { projectId: string | null };
@@ -116,6 +117,11 @@ export function ArtefactsPane({ projectId }: Props) {
               onChange={refresh}
             />
             <AnalysisArtefact
+              brief={brief}
+              hypotheses={hypotheses}
+              hasAcceptedHypotheses={hasAcceptedHypotheses}
+            />
+            <RecommendationsArtefact
               brief={brief}
               hypotheses={hypotheses}
               hasAcceptedHypotheses={hasAcceptedHypotheses}

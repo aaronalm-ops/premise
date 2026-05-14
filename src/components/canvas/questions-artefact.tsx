@@ -320,18 +320,24 @@ function QuestionCard({
       )}
 
       <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-        {q.variants.map((v) => (
-          <VariantCard
-            key={v.id}
-            v={v}
-            selected={q.selected_variant_id === v.id}
-            onSelect={() =>
-              selectVariant(q.selected_variant_id === v.id ? null : v.id)
-            }
-            onEdited={onChange}
-            disabled={busy !== null}
-          />
-        ))}
+        {/* D-040: recommended variant rendered first to anchor the fatigue-default. */}
+        {[...q.variants]
+          .sort((a, b) => {
+            if (a.is_recommended === b.is_recommended) return a.ordinal - b.ordinal;
+            return a.is_recommended ? -1 : 1;
+          })
+          .map((v) => (
+            <VariantCard
+              key={v.id}
+              v={v}
+              selected={q.selected_variant_id === v.id}
+              onSelect={() =>
+                selectVariant(q.selected_variant_id === v.id ? null : v.id)
+              }
+              onEdited={onChange}
+              disabled={busy !== null}
+            />
+          ))}
       </div>
     </div>
   );
@@ -386,8 +392,37 @@ function VariantCard({
   const baseClass = `flex flex-col gap-1.5 rounded-md border px-3 py-2 text-left transition ${
     selected
       ? "border-emerald-400 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30"
-      : "border-[var(--color-border)] bg-[var(--color-background)] hover:border-[var(--color-foreground)]/30"
+      : v.is_recommended
+        ? "border-sky-300 bg-sky-50/60 hover:border-sky-400 dark:border-sky-900 dark:bg-sky-950/20"
+        : "border-[var(--color-border)] bg-[var(--color-background)] hover:border-[var(--color-foreground)]/30"
   }`;
+
+  // D-040: a subtle visual cue for the variant the bot recommends. We avoid
+  // overdoing it (no scarlet "RECOMMENDED" banner) — the cue is a quiet
+  // border tint plus a small tag, so a researcher who disagrees feels
+  // invited to override without being shouted at.
+  const recommendedBadge = v.is_recommended && !selected ? (
+    <span className="text-[9px] font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-300">
+      Recommended
+    </span>
+  ) : null;
+  const selectionModeBadge =
+    selected && v.selection_mode ? (
+      <span
+        className={`text-[9px] font-semibold uppercase tracking-wider ${
+          v.selection_mode === "active"
+            ? "text-emerald-700 dark:text-emerald-300"
+            : "text-[var(--color-muted-foreground)]"
+        }`}
+        title={
+          v.selection_mode === "active"
+            ? "You actively chose this over the recommendation."
+            : "You went with the recommended variant."
+        }
+      >
+        · {v.selection_mode === "active" ? "active pick" : "default pick"}
+      </span>
+    ) : null;
 
   if (editing) {
     return (
@@ -434,15 +469,19 @@ function VariantCard({
       className={`${baseClass} ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
-          {VARIANT_LABELS[v.variant_type]}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+            {VARIANT_LABELS[v.variant_type]}
+          </span>
+          {recommendedBadge}
+        </div>
         <div className="flex items-center gap-1">
           {selected && (
             <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
               SELECTED
             </span>
           )}
+          {selectionModeBadge}
           <span
             role="button"
             tabIndex={0}

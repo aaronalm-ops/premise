@@ -7,6 +7,7 @@ import type {
   HypothesisStatus,
   StoryAngle,
 } from "@/lib/rag/types";
+import { GroundingDisclosure } from "./grounding-disclosure";
 
 type Props = {
   brief: Brief | null;
@@ -161,6 +162,8 @@ export function StoriesArtefact({
             ))}
           </Section>
         )}
+
+        {angles.length > 0 && <GroundingDisclosure context="angles" />}
       </div>
     </div>
   );
@@ -311,8 +314,9 @@ function AngleCard({
 
       <div className="mt-1.5 rounded border border-indigo-300 bg-indigo-50 px-2 py-1 text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-100">
         <span className="text-[10px] font-semibold uppercase tracking-wider">
-          Omits:
-        </span>{" "}
+          Deliberately leaves out
+        </span>
+        <span className="ml-1 text-[10px] opacity-80">(address or own it):</span>{" "}
         {angle.omits}
       </div>
 

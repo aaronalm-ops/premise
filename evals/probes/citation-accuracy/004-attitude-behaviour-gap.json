@@ -1,0 +1,10 @@
+{
+  "id": "citation-accuracy-004",
+  "type": "citation-accuracy",
+  "description": "Quantitative claim (attitude-behaviour gap) — magnitudes are a known drift surface",
+  "question": "What was the gap between stated and revealed preference on sustainability in the 2024 women's panel?",
+  "expects": {
+    "min_claims": 1,
+    "min_support_rate": 1.0
+  }
+}

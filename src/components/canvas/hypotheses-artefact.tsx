@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   Brief,
   Hypothesis,
   HypothesisStatus,
 } from "@/lib/rag/types";
+import { GroundingDisclosure } from "./grounding-disclosure";
 
 type Props = {
   brief: Brief | null;
@@ -16,6 +17,26 @@ type Props = {
 export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // D-041: tracks whether an analysis exists on this brief — gates the
+  // post-analysis-revision rationale prompt on accepted hypotheses.
+  const [hasAnalysis, setHasAnalysis] = useState(false);
+
+  useEffect(() => {
+    if (!brief) {
+      setHasAnalysis(false);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/briefs/${brief.id}/analysis`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setHasAnalysis(Boolean(data?.analysis));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [brief, hypotheses]);
 
   const generate = async () => {
     if (!brief) return;
@@ -135,7 +156,12 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
         {buckets.accepted.length > 0 && (
           <Section title="Accepted">
             {buckets.accepted.map((h) => (
-              <HypothesisCard key={h.id} h={h} onChange={onChange} />
+              <HypothesisCard
+                key={h.id}
+                h={h}
+                hasAnalysis={hasAnalysis}
+                onChange={onChange}
+              />
             ))}
           </Section>
         )}
@@ -143,7 +169,12 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
         {buckets.proposed.length > 0 && (
           <Section title="Proposed">
             {buckets.proposed.map((h) => (
-              <HypothesisCard key={h.id} h={h} onChange={onChange} />
+              <HypothesisCard
+                key={h.id}
+                h={h}
+                hasAnalysis={hasAnalysis}
+                onChange={onChange}
+              />
             ))}
           </Section>
         )}
@@ -151,10 +182,17 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
         {buckets.rejected.length > 0 && (
           <Section title="Rejected" muted>
             {buckets.rejected.map((h) => (
-              <HypothesisCard key={h.id} h={h} onChange={onChange} />
+              <HypothesisCard
+                key={h.id}
+                h={h}
+                hasAnalysis={hasAnalysis}
+                onChange={onChange}
+              />
             ))}
           </Section>
         )}
+
+        {hypotheses.length > 0 && <GroundingDisclosure context="hypotheses" />}
       </div>
     </div>
   );
@@ -181,9 +219,11 @@ function Section({
 
 function HypothesisCard({
   h,
+  hasAnalysis,
   onChange,
 }: {
   h: Hypothesis;
+  hasAnalysis: boolean;
   onChange: () => void;
 }) {
   const [busy, setBusy] = useState<HypothesisStatus | "save" | null>(null);
@@ -225,6 +265,33 @@ function HypothesisCard({
   };
 
   const saveEdit = async () => {
+    // D-041: post-analysis revision discipline. If this hypothesis is
+    // accepted AND an analysis has run on this brief AND the user is
+    // changing a structural field, require a deviation rationale. We catch
+    // the case client-side for UX (so the user knows BEFORE hitting save);
+    // the API still enforces it regardless.
+    const structuralEdit =
+      draftStatement.trim() !== h.statement.trim() ||
+      (draftDirection || null) !== (h.expected_direction ?? null) ||
+      (draftCriteria || null) !== (h.confirmation_criteria ?? null);
+
+    let revisionRationale: string | undefined;
+    if (structuralEdit && h.status === "accepted" && hasAnalysis) {
+      const note = window.prompt(
+        "Analysis already exists on this brief. Revising an accepted hypothesis post-analysis is a deviation from pre-registered hypotheses (D-041).\n\nName WHY this revision is necessary. The rationale will be surfaced on the card and auto-appended to any story angle that leans on this hypothesis.",
+        "",
+      );
+      if (note === null) return; // cancelled
+      const trimmed = note.trim();
+      if (trimmed.length === 0) {
+        window.alert(
+          "A non-empty rationale is required to revise an accepted hypothesis post-analysis.",
+        );
+        return;
+      }
+      revisionRationale = trimmed;
+    }
+
     setBusy("save");
     try {
       const r = await fetch(`/api/hypotheses/${h.id}`, {
@@ -234,11 +301,15 @@ function HypothesisCard({
           statement: draftStatement,
           expected_direction: draftDirection || null,
           confirmation_criteria: draftCriteria || null,
+          ...(revisionRationale ? { revision_rationale: revisionRationale } : {}),
         }),
       });
       if (r.ok) {
         setEditing(false);
         onChange();
+      } else {
+        const data = await r.json().catch(() => ({}));
+        window.alert(data.error ?? `Save failed (${r.status})`);
       }
     } finally {
       setBusy(null);
@@ -258,6 +329,18 @@ function HypothesisCard({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <PriorityBadge priority={h.priority} />
+          {h.revised_after_analysis && (
+            <span
+              className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100"
+              title={
+                h.revision_rationale
+                  ? `Deviation rationale: ${h.revision_rationale}`
+                  : "Revised after analysis ran"
+              }
+            >
+              Revised post-analysis
+            </span>
+          )}
           <button
             onClick={() => setExpanded((e) => !e)}
             className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:underline"
@@ -390,6 +473,14 @@ function HypothesisCard({
                 Confirmation criteria
               </p>
               <p className="mt-0.5">{h.confirmation_criteria}</p>
+            </div>
+          )}
+          {h.revised_after_analysis && h.revision_rationale && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                Revision rationale (deviation report)
+              </p>
+              <p className="mt-0.5">{h.revision_rationale}</p>
             </div>
           )}
           {(h.supporting_chunk_ids.length > 0 ||

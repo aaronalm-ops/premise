@@ -1,0 +1,10 @@
+{
+  "id": "citation-accuracy-001",
+  "type": "citation-accuracy",
+  "description": "Cited chunks must directly support the Anthropic-cautious claim (independent Sonnet judge)",
+  "question": "Which AI provider did reviewers flag as cautious-by-default?",
+  "expects": {
+    "min_claims": 1,
+    "min_support_rate": 1.0
+  }
+}

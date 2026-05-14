@@ -50,6 +50,10 @@ export const UpdateHypothesisBody = z
     confirmation_criteria: z.string().nullable().optional(),
     assumptions: z.array(z.string()).optional(),
     priority: z.number().int().min(1).max(5).optional(),
+    // D-041: required by the API when an *accepted* hypothesis is being
+    // structurally revised AFTER an analysis has run on the brief. The route
+    // enforces the conditional; here we just allow the field through.
+    revision_rationale: z.string().min(1).optional(),
   })
   .refine((b) => Object.keys(b).length > 0, {
     message: "patch must include at least one field",
@@ -92,6 +96,20 @@ export const UpdateQuestionVariantBody = z
     statement: z.string().min(1).optional(),
     response_format: z.string().nullable().optional(),
     response_options: z.array(z.string()).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, {
+    message: "patch must include at least one field",
+  });
+
+// ===== Recommendations (D-039) =====
+
+export const UpdateRecommendationBody = z
+  .object({
+    status: ItemStatus.optional(),
+    rejection_reason: z.string().nullable().optional(),
+    insight: z.string().min(1).optional(),
+    recommended_action: z.string().min(1).optional(),
+    caveats: z.array(z.string()).optional(),
   })
   .refine((b) => Object.keys(b).length > 0, {
     message: "patch must include at least one field",

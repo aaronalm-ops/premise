@@ -3,9 +3,8 @@ import { getBrief } from "@/lib/db/briefs";
 import { listHypotheses } from "@/lib/db/hypotheses";
 import { listPersonas } from "@/lib/db/personas";
 import { getAnalysisWithData } from "@/lib/db/analysis";
-import { listAcceptedRecommendations } from "@/lib/db/recommendations";
-import { generateStoryAngles } from "@/lib/rag/story-generator";
-import { replaceProposedStoryAngles } from "@/lib/db/stories";
+import { generateRecommendations } from "@/lib/rag/recommendation-generator";
+import { replaceProposedRecommendations } from "@/lib/db/recommendations";
 import { IdParam } from "@/lib/validation/schemas";
 import { HttpError, safeError } from "@/lib/api/safe-error";
 import { withGenerationLock } from "@/lib/api/with-lock";
@@ -23,7 +22,7 @@ export async function POST(
     const brief = await getBrief(briefId);
     if (!brief) throw new HttpError(404, "Brief not found.");
 
-    return await withGenerationLock(`stories:${briefId}`, async () => {
+    return await withGenerationLock(`recommendations:${briefId}`, async () => {
       const allHypotheses = await listHypotheses(briefId);
       const acceptedHypotheses = allHypotheses.filter(
         (h) => h.status === "accepted",
@@ -31,31 +30,24 @@ export async function POST(
       if (acceptedHypotheses.length === 0) {
         throw new HttpError(
           422,
-          "Accept at least one hypothesis before generating story angles.",
+          "Accept at least one hypothesis before generating recommendations.",
         );
       }
 
       const allPersonas = await listPersonas(briefId);
-      const acceptedPersonas = allPersonas.filter((p) => p.status === "accepted");
+      const acceptedPersonas = allPersonas.filter(
+        (p) => p.status === "accepted",
+      );
 
       const analysisRow = await getAnalysisWithData(briefId);
       const analysis =
         analysisRow && analysisRow.status === "complete" ? analysisRow : null;
 
-      // D-039 cascade: if a recommendation has been accepted, the angles
-      // must ladder up to it. If multiple are accepted, prefer the most
-      // recent (highest ordinal). If none, fall back to today's behaviour.
-      const acceptedRecommendations =
-        await listAcceptedRecommendations(briefId);
-      const acceptedRecommendation =
-        acceptedRecommendations[acceptedRecommendations.length - 1] ?? null;
-
-      const { drafts } = await generateStoryAngles({
+      const { drafts } = await generateRecommendations({
         briefContent: brief.content,
         acceptedHypotheses,
         acceptedPersonas,
         analysis,
-        acceptedRecommendation,
         projectId: brief.project_id,
         briefId,
       });
@@ -63,16 +55,16 @@ export async function POST(
       if (drafts.length === 0) {
         throw new HttpError(
           422,
-          "No grounded story angles were produced. Check that your hypotheses + analysis carry enough evidence.",
+          "The evidence chain is too thin to ground a causal recommendation. Run the analysis stage, accept stronger hypotheses, or upload more data sources.",
         );
       }
 
-      const angles = await replaceProposedStoryAngles({
+      const recommendations = await replaceProposedRecommendations({
         briefId,
         projectId: brief.project_id,
         drafts,
       });
-      return NextResponse.json({ angles });
+      return NextResponse.json({ recommendations });
     });
   } catch (err) {
     return safeError(err);

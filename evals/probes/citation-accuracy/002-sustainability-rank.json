@@ -1,0 +1,10 @@
+{
+  "id": "citation-accuracy-002",
+  "type": "citation-accuracy",
+  "description": "Sustainability-rank citation accuracy — a numeric claim is the most common false-positive shape",
+  "question": "Where did sustainability rank as a stated purchase driver for Tier-1 Gen-Z women in the 2024 study?",
+  "expects": {
+    "min_claims": 1,
+    "min_support_rate": 1.0
+  }
+}

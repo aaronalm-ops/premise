@@ -1,0 +1,10 @@
+{
+  "id": "citation-accuracy-005",
+  "type": "citation-accuracy",
+  "description": "Cross-study claim drawing on multiple chunks — joint support is the failure mode",
+  "question": "What recurring patterns appear across the 2024 sustainability work and the 2026 brand trust work?",
+  "expects": {
+    "min_claims": 1,
+    "min_support_rate": 1.0
+  }
+}

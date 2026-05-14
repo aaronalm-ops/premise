@@ -10,6 +10,7 @@ import type {
   Analysis,
   Hypothesis,
   Persona,
+  Recommendation,
   StoryAngle,
   StoryAngleDraft,
 } from "@/lib/rag/types";
@@ -101,6 +102,7 @@ export type GenerateAnglesInput = {
   acceptedHypotheses: Hypothesis[];
   acceptedPersonas: Persona[];
   analysis: Analysis | null;
+  acceptedRecommendation: Recommendation | null;
   projectId: string;
   briefId: string;
 };
@@ -158,7 +160,11 @@ export async function generateStoryAngles(
     ? input.analysis.caveats.map((c) => `- ${c}`).join("\n")
     : "(no analysis caveats — analysis hasn't run, or no study-wide issues flagged)";
 
-  const userPrompt = `# Brief\n${input.briefContent}\n\n# Accepted hypotheses (with verdicts where available)\n${hypothesesText}\n\n# Emergent patterns from analysis\n${patternsText || "(none yet — analysis hasn't surfaced emergent patterns)"}\n\n# Recommended personas\n${personasText}\n\n# Study caveats\n${caveatsText}\n\nCall propose_story_angles now with 3-4 ranked angles. Each angle must cite at least one hypothesis_id or emergent pattern.`;
+  const recommendationText = input.acceptedRecommendation
+    ? `Insight: ${input.acceptedRecommendation.insight}\nAction: ${input.acceptedRecommendation.recommended_action}\nConfidence: ${input.acceptedRecommendation.confidence}\nCaveats: ${input.acceptedRecommendation.caveats.join("; ") || "none recorded"}\n\nEvery angle's evidence chain MUST ladder up to this insight + action. If an angle can't connect to it, drop it.`
+    : "(no accepted recommendation — angles draw directly from hypotheses + emergent patterns)";
+
+  const userPrompt = `# Brief\n${input.briefContent}\n\n# Accepted recommendation (the spine the angles must ladder up to)\n${recommendationText}\n\n# Accepted hypotheses (with verdicts where available)\n${hypothesesText}\n\n# Emergent patterns from analysis\n${patternsText || "(none yet — analysis hasn't surfaced emergent patterns)"}\n\n# Recommended personas\n${personasText}\n\n# Study caveats\n${caveatsText}\n\nCall propose_story_angles now with 3-4 ranked angles. Each angle must cite at least one hypothesis_id or emergent pattern.`;
 
   const response = await tracedMessagesCreate(
     {
@@ -183,15 +189,50 @@ export async function generateStoryAngles(
   }
 
   const validHypothesisIds = new Set(input.acceptedHypotheses.map((h) => h.id));
+
+  // D-041 cascade: if an angle's evidence chain touches a hypothesis that
+  // was revised AFTER the analysis ran, fold the deviation report into the
+  // angle's omits field. This is how the integrity flows all the way to
+  // the final deck — the omits field is part of the angle, surfaces in the
+  // UI, and feeds the outline drafter via input.angle.omits. The honest
+  // research tradition treats post-hoc revisions as audit-worthy; making
+  // them part of the story-angle artefact rather than a footnote elsewhere
+  // is the same instinct as D-036's mandatory-omits and D-018's
+  // mandatory-citations: schema-enforced honesty.
+  const hypById = new Map(input.acceptedHypotheses.map((h) => [h.id, h]));
+
   const drafts = data.angles
-    .map((a) => ({
-      ...a,
-      supporting_hypothesis_ids: (a.supporting_hypothesis_ids ?? []).filter(
-        (id) => validHypothesisIds.has(id),
-      ),
-      supporting_emergent_patterns: a.supporting_emergent_patterns ?? [],
-      beats: (a.beats ?? []).slice(0, 3),
-    }))
+    .map((a) => {
+      const supportingIds = (a.supporting_hypothesis_ids ?? []).filter((id) =>
+        validHypothesisIds.has(id),
+      );
+
+      const revisionNotes: string[] = [];
+      for (const hid of supportingIds) {
+        const h = hypById.get(hid);
+        if (h?.revised_after_analysis) {
+          const label = `H${h.ordinal + 1}`;
+          const rationale = h.revision_rationale?.trim();
+          revisionNotes.push(
+            rationale
+              ? `${label} was revised after analysis (rationale: ${rationale})`
+              : `${label} was revised after analysis`,
+          );
+        }
+      }
+
+      const omits = revisionNotes.length
+        ? `${a.omits.trim()} ${revisionNotes.map((n) => `[Deviation: ${n}.]`).join(" ")}`.trim()
+        : a.omits;
+
+      return {
+        ...a,
+        supporting_hypothesis_ids: supportingIds,
+        supporting_emergent_patterns: a.supporting_emergent_patterns ?? [],
+        beats: (a.beats ?? []).slice(0, 3),
+        omits,
+      };
+    })
     .filter(
       (a) =>
         a.supporting_hypothesis_ids.length > 0 ||

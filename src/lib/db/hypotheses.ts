@@ -16,6 +16,33 @@ export async function listHypotheses(briefId: string): Promise<Hypothesis[]> {
   return (data ?? []) as Hypothesis[];
 }
 
+export async function getHypothesis(id: string): Promise<Hypothesis | null> {
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from("hypotheses")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`getHypothesis: ${error.message}`);
+  return (data ?? null) as Hypothesis | null;
+}
+
+// D-041: returns true if an analysis row exists for the brief — meaning
+// any structural edit to an *accepted* hypothesis on this brief is a
+// post-analysis revision and must carry a rationale (the deviation report).
+// We use existence of an `analyses` row rather than "complete" status,
+// because mid-run revisions are also deviations.
+export async function briefHasAnalysis(briefId: string): Promise<boolean> {
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from("analyses")
+    .select("id")
+    .eq("brief_id", briefId)
+    .limit(1);
+  if (error) throw new Error(`briefHasAnalysis: ${error.message}`);
+  return (data ?? []).length > 0;
+}
+
 // Replaces all proposed hypotheses for a brief. Accepted/rejected are kept,
 // preserving the researcher's prior decisions even when they regenerate.
 //
@@ -62,6 +89,8 @@ export async function updateHypothesis(input: {
   assumptions?: string[];
   priority?: 1 | 2 | 3 | 4 | 5;
   rejection_reason?: string | null;
+  revised_after_analysis?: boolean;
+  revision_rationale?: string | null;
 }): Promise<Hypothesis> {
   const supabase = getSupabaseServer();
   const patch: Record<string, unknown> = {
@@ -78,6 +107,10 @@ export async function updateHypothesis(input: {
     patch.confirmation_criteria = input.confirmation_criteria;
   if (input.assumptions !== undefined) patch.assumptions = input.assumptions;
   if (input.priority !== undefined) patch.priority = input.priority;
+  if (input.revised_after_analysis !== undefined)
+    patch.revised_after_analysis = input.revised_after_analysis;
+  if (input.revision_rationale !== undefined)
+    patch.revision_rationale = input.revision_rationale;
 
   const { data, error } = await supabase
     .from("hypotheses")
@@ -87,4 +120,23 @@ export async function updateHypothesis(input: {
     .single();
   if (error) throw new Error(`updateHypothesis: ${error.message}`);
   return data as Hypothesis;
+}
+
+// D-041: which fields on a hypothesis, if changed, are "structural" — i.e.,
+// would rewrite the analysis if the analysis already references this
+// hypothesis. Status changes (accept/reject/proposed) are NOT structural
+// — those are normal flow operations and have their own audit trail
+// through `status` + `rejection_reason`.
+export const STRUCTURAL_HYPOTHESIS_FIELDS = [
+  "statement",
+  "expected_direction",
+  "confirmation_criteria",
+  "assumptions",
+  "priority",
+] as const;
+
+export function bodyMutatesStructuralFields(body: Record<string, unknown>): boolean {
+  return STRUCTURAL_HYPOTHESIS_FIELDS.some(
+    (field) => body[field] !== undefined,
+  );
 }

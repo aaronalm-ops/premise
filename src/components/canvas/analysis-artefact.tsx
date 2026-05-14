@@ -7,6 +7,7 @@ import type {
   Brief,
   Hypothesis,
 } from "@/lib/rag/types";
+import { GroundingDisclosure } from "./grounding-disclosure";
 
 type Props = {
   brief: Brief | null;
@@ -409,6 +410,10 @@ export function AnalysisArtefact({
               ))}
             </ul>
           </div>
+        )}
+
+        {(verdicts.length > 0 || patterns.length > 0) && (
+          <GroundingDisclosure context="analysis" />
         )}
       </div>
     </div>

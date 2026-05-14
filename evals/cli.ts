@@ -16,6 +16,7 @@ import { runHallucination } from "./runners/hallucination";
 import { runHypothesisQuality } from "./runners/hypothesis-quality";
 import { runPersonaQuality } from "./runners/persona-quality";
 import { runConfidentiality } from "./runners/confidentiality";
+import { runCitationAccuracy } from "./runners/citation-accuracy";
 import type { ProbeResult, ProbeType } from "./lib/types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,7 @@ const ALL_TYPES: ProbeType[] = [
   "hypothesis-quality",
   "persona-quality",
   "confidentiality",
+  "citation-accuracy",
 ];
 
 function parseArgs(argv: string[]): {
@@ -94,6 +96,9 @@ async function main() {
         break;
       case "confidentiality":
         typeResults = await runConfidentiality(config);
+        break;
+      case "citation-accuracy":
+        typeResults = await runCitationAccuracy(config.project_a_id);
         break;
     }
     for (const r of typeResults) {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type KeyboardEvent } from "react";
 import type { AskResult, RetrievedChunk } from "@/lib/rag/types";
+import { GroundingDisclosure } from "./grounding-disclosure";
 
 type Props = { projectId: string | null };
 
@@ -195,41 +196,45 @@ function AnswerView({ result }: { result: AskResult }) {
       {noClaims && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100">
           <p className="text-[10px] font-semibold uppercase tracking-wider">
-            Honest abstention
+            Below the grounding floor
           </p>
           <p className="mt-1">
-            The corpus does not support an answer to this question. Premise
-            refuses to fabricate; the items below explain what&apos;s missing.
+            The corpus does not contain enough to ground an answer to this
+            question. The items below name what would close the gap —
+            additional documents, or a clarifying refinement of the question.
           </p>
         </div>
       )}
 
       {answer.claims.length > 0 && (
-        <ul className="space-y-3">
-          {answer.claims.map((claim, i) => (
-            <li
-              key={i}
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-4 py-3 text-sm"
-            >
-              <ConfidenceBadge confidence={claim.confidence} />
-              <p className="mt-1 leading-relaxed text-[var(--color-foreground)]">
-                {claim.text}
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-1">
-                <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
-                  Cites:
-                </span>
-                {claim.citation_ids.map((id) => (
-                  <CitationChip
-                    key={id}
-                    id={id}
-                    chunk={chunkById.get(id)}
-                  />
-                ))}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-3">
+            {answer.claims.map((claim, i) => (
+              <li
+                key={i}
+                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-4 py-3 text-sm"
+              >
+                <ConfidenceBadge confidence={claim.confidence} />
+                <p className="mt-1 leading-relaxed text-[var(--color-foreground)]">
+                  {claim.text}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                    Cites:
+                  </span>
+                  {claim.citation_ids.map((id) => (
+                    <CitationChip
+                      key={id}
+                      id={id}
+                      chunk={chunkById.get(id)}
+                    />
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <GroundingDisclosure context="answer" />
+        </>
       )}
 
       {answer.unanswered_aspects.length > 0 && (

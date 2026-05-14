@@ -1382,10 +1382,436 @@ Skip the evidence-chain requirement: angles drift into pure speculation, often w
 
 Generate full articles instead of outlines: the bot's prose voice replaces the researcher's. The product becomes "AI writes my LinkedIn posts" and loses the "AI widens my option space, I keep the voice" positioning that D-018 / D-019 protect.
 
+### Footnote 1 (2026-05-14, prompt v2): positioned titles + distinct audiences
+
+Two taskforce-driven tightenings of the same prompt (see `docs/TASKFORCE_CRITIQUE.md` critiques 7a + 7b, Brand Strategist), bundled into one version bump because they target the same artefact and reinforce each other.
+
+**What changed in the prompt.** Rule 1 now requires each angle to name a *different primary audience* — not three flavours of the same reader. If two angles drift toward the same stakeholder, only one survives; the other pivots. The reframed rule 3 (new) requires the `title` field to *encode the positioning* — "The premium-mainstream story" rather than "Three Surprising Findings". Style guidance updated to match. Rule 6 (omits) now explicitly frames the omission as a positioning *choice*, not an apology, so the model stops generating defensive-sounding omits language.
+
+**What didn't change.** Schema is identical: `title`, `target_audience`, `omits`, `beats` are the same fields with the same types. The `omits` requirement is still mandatory and structurally enforced (D-036's core promise). The strict-abstention chassis (D-010), evidence-chain requirement, and confidence-per-claim model are untouched. The generator code (`src/lib/rag/story-generator.ts`) and the tool schema didn't move — the model just populates each field with a sharper instruction set.
+
+**Why bundle in this footnote rather than a new D-NNN.** Same prompt, same artefact, same author (the angle generator). Both edits sharpen what D-036 already promised; neither contradicts it. A new D-NNN here would be inflation, not insight. When the underlying *contract* changes, a new entry is right. When the *execution* of the same contract gets sharper, a footnote is the honest log.
+
+**Combined with D-038's `omits`-as-positioning UI reframe**, the angle stage now reads end-to-end as a positioning decision rather than a list of caveats. Title says "the premium-mainstream story"; omits explains what the positioning excludes; both are framed as deliberate, not defensive. The two changes only work together — splitting them would have left a half-state where the title was punchy-generic but the omits was honestly-positioned, which reads as inconsistency.
+
+**Risk taken.** Positioned titles may feel less punchy on first read than generic-punchy titles. Mitigation: the lede stays the punchy line; the title gains positioning weight. If the new angles regenerate flat (literal "The X story" patterns), the prompt needs more examples — flag in EVALUATION_LOG.md on first real-corpus regeneration.
+
+---
+
+## D-043 — Cost-at-scale calculator: the answer to "how much per study?"
+
+### The story
+
+Every commercial conversation about Premise opens the same way. The prospective buyer, three minutes into the call, asks one question: *"so how much does it cost to run a study on this?"* Before this commit, the honest answer was *"I'll get back to you."* That answer kills credibility the way "I don't know" kills a board recommendation — the prospect concludes Premise is a portfolio project run by someone who hasn't done the commercial math.
+
+The taskforce's senior AI PM (critique 10d) named it cleanly: *"<$5/month is a portfolio constraint, not a production constraint. The first time a real researcher uploads 500 transcripts you'll see what production economics actually look like. Premise needs a 'simulate cost at scale' calculator before any commercial conversation, or the conversation goes 'how much per study?' / 'I don't know.'"*
+
+So we built the calculator. Standalone page, no auth, linkable from anywhere.
+
+### What we built
+
+**Aggregation helper.** [src/lib/db/cost-projection.ts](src/lib/db/cost-projection.ts) reads `api_calls` (D-023's telemetry table) and rolls every recorded call into one of nine buckets keyed by stage of the research lifecycle: ingestion, ask, hypothesis-gen, persona-gen, question-gen, analysis-gen, recommendation-gen, story-gen, story-outline. For each bucket it computes call_count, avg_cost_usd, and total_cost_usd from the observed data. Where a bucket has fewer than 3 observations, the helper falls back to a published table of conservative estimates drawn from Premise's own dogfooding runs at known token rates and an 80%-cache-hit assumption (D-021).
+
+**Projection function.** Same module. Given a `ProjectionInput` (docs, questions, generations_per_stage, outlines), it multiplies each bucket's average by the appropriate volume and returns per-bucket costs, a per-study total, an "at 10 studies/month" total, and a percentage breakdown. The breakdown is what makes the calculator useful in conversation — the prospect immediately sees which stage dominates, which is almost always the question generator at default volumes.
+
+**Public API endpoint.** [GET /api/cost-projection](src/app/api/cost-projection/route.ts). Zod-validates query parameters (`docs`, `questions`, `generations_per_stage`, `outlines`), reads aggregated averages, returns the projection. Crucially **no auth**: the response is anonymised aggregation — no project_id, no project content, no per-call rows leave the server. Same private-share posture as the live demo (D-030): semi-public, linkable, not broadcast.
+
+**The page.** [/cost-calculator](src/app/cost-calculator/page.tsx). Four sliders (docs 0–500, questions 0–500, regenerations 1–10, outlines 0–10), a hero showing per-study and monthly cost, a per-stage breakdown that labels each row as "observed (N calls)" or "fallback estimate," and a "how costs scale" footer that names the top 4 stages by share. The hero is the *single number* a buyer screenshots and brings to their procurement meeting; everything else is the audit trail behind that number.
+
+### Why "observed" + "fallback" matters
+
+The first failure mode of a cost calculator is *confidently wrong numbers*. The second is *no calculator at all*. The hybrid pattern handles both:
+
+- **Observed averages** appear once a bucket has ≥3 real calls in `api_calls`. The label says "observed (N calls)" so the buyer can see how trustworthy the figure is.
+- **Fallback estimates** appear when the bucket has no real data yet (e.g. a fresh deployment, or a stage the user hasn't exercised). The label says "fallback estimate (no observations yet)" — visibly hedged. Conservative on purpose so the calculator never *under*-projects.
+
+This is the same instinct as D-038's strict-abstention reframe: the floor is "never lie about cost"; the ceiling is "calibrated estimation with bounded uncertainty." Same posture, different artefact.
+
+### What we deliberately did *not* build
+
+- **Per-tenant cost meter** (live billing-style). Would require auth, per-project scoping, and an entirely different threat model. The calculator's job is a *projection* for buyers, not a *meter* for users. Real per-tenant billing comes with commercial pivot.
+- **Cache hit rate dial.** Tempting — let the buyer toggle "what if my cache hit rate is only 50%?" Decided against: too noisy. The fallback assumes a realistic 80% rate; the observed data already reflects whatever your actual cache rate is. A dial would invite confusion about which lever to pull.
+- **Multi-model cost comparison.** "What if you ran on Sonnet for everything?" Out of scope. Premise's model routing (D-002) is a deliberate product decision, not a knob the buyer chooses.
+- **Cost regression test in CI.** The eval CLI already pulls aggregate cost (`evals/cli.ts:108-142`); regression gating on cost-per-probe is a known follow-up (audit-2 item, not in this wave).
+- **Hide the fallback estimates.** Considered — the page is cleaner if every bucket shows "observed". Rejected: invites false confidence. Visible hedging is the discipline.
+
+### The PM lesson
+
+**Build the calculator before the commercial conversation, not during.** A prospect who asks "how much per study?" and hears "I'll get back to you" has just learned that the builder hasn't thought commercially. A prospect who hears "here's the calculator, here's the link, plug in your numbers" has just learned the builder respects their job. Same product, totally different read.
+
+The deeper lesson for AI PMs: **the answer to "how much does this cost?" is a product surface, not a finance question.** Every commercial AI product needs a calculator — a linkable, sharable, slider-driven artefact that turns "AI is unpredictably expensive" into "this much, for this shape of work, with these assumptions you can see." The calculator is the floor; the buyer's mileage above it is calibrated uncertainty. Same pattern as D-038.
+
+### What would break if we got it wrong
+
+Skip the calculator: every commercial conversation gets stuck on "how much?" and never reaches "would it be useful?". The product reads as portfolio-only.
+
+Show only observed averages with no fallbacks: a fresh deployment displays $0 per study (no calls recorded yet), which is *more* misleading than a labelled estimate. Fallbacks fail the right way.
+
+Auth-gate the calculator: prospects can't link to it before they sign up, which destroys its purpose as a top-of-funnel artefact. Public-with-anonymised-aggregation is the discipline.
+
+Bake cost figures into static documentation: the moment the model pricing or the prompt changes, the docs become quietly wrong. A live calculator stays honest as long as the underlying observations stay honest.
+
+---
+
+## D-042 — Citation-accuracy probe: independent Sonnet judge as a cross-check on the Haiku verifier
+
+### The story
+
+The strict-abstention chassis (D-010) is the load-bearing safety claim. Three layers — schema-forced tool_use, batched Haiku verifier (D-035 / L-5), UI gate — protect against fabricated claims. The audit-2 taskforce's AI-safety researcher (critique 8a) asked the obvious follow-up: *"What's your false-citation rate? The eval harness has 6 probe types but probe count is only 20 — that's a thin signal."*
+
+The risk shape: the Haiku verifier could pass a claim that *looks* supported by its cited chunks but isn't quite — wrong magnitude, generalised assertion, near-but-not-exact match. Every "no false-positives" claim about strict-abstention needs evidence that the verifier itself doesn't drift.
+
+The probe: run an INDEPENDENT judge — different model (Sonnet, not Haiku), different prompt (stricter rubric, explicit "no implication, no near-supports"), different surface (eval CI, not user-facing). If Sonnet rejects a claim that already shipped past Haiku, we've caught a verifier false-positive.
+
+### What we built
+
+**Probe type.** Added `citation-accuracy` to `evals/lib/types.ts`. Each probe carries `min_claims` (so the probe skips if generation produces too few claims to judge) and `min_support_rate` (typically 1.0 — *every* claim must be Sonnet-supported).
+
+**Runner.** [evals/runners/citation-accuracy.ts](evals/runners/citation-accuracy.ts). Pipeline: ask the question via the full /api/ask path → collect the surviving claims → call Sonnet with a stricter system prompt that explicitly rejects "merely mentions the same topic", "implies something nearby", "adds detail the chunks don't contain", "generalises beyond what the chunks state". Sonnet returns one boolean per claim via forced tool_use; the probe passes if support_rate ≥ threshold.
+
+**Fixtures.** Five JSON probes in `evals/probes/citation-accuracy/`, reusing the existing eval corpus (the same one golden-qa uses). The reuse is deliberate: golden-qa tests "did the bot answer correctly"; citation-accuracy tests "even though it claims to have answered correctly, do the citations actually carry the claim?". Same question, different question *about* the answer.
+
+**CLI integration.** Added to `ALL_TYPES` in `evals/cli.ts` and to the switch dispatch. `npm run eval -- --type=citation-accuracy` runs the new probe-set on its own; `npm run eval` includes it in the full sweep.
+
+### Why a separate model, not a stricter Haiku prompt
+
+The first instinct was to make the existing Haiku verifier stricter and call it twice in eval mode. Rejected on two grounds:
+
+1. **A separate model is the actual cross-check.** If we tune the Haiku verifier to be perfectly strict at eval time and slightly looser at runtime, we're auditing the loose version against the strict version — both of which are the same Haiku weights. A genuine cross-check uses a different model.
+2. **Cost asymmetry permits it.** The runtime verifier runs on every `/api/ask` call; cost matters. The eval probe runs only in CI / on-demand; the ~$0.003 Sonnet judge cost per claim is acceptable for a quality gate.
+
+### What we deliberately did *not* build
+
+- **Variant of the probe that runs Sonnet judge in production.** Considered. Rejected: doubles runtime cost on every question, and the failure mode the probe catches — verifier drift — is a *trend* you detect in CI history, not a per-question alarm. Real-time judging belongs to defence-in-depth for a future high-stakes deployment.
+- **A "judge disagrees with verifier" alarm in the eval reporter.** Today the probe just passes/fails on support_rate. A future enhancement: log the disagreement, accumulate over runs, and flag systematic drift. Worth a follow-up audit-2 item.
+- **An adversarial / prompt-injection probe (taskforce 8c).** Different probe shape (malicious document fixtures, not citation auditing). Logged in EVALUATION_LOG.md as E-4 for a future round.
+- **A self-consistency probe (taskforce 8e — same Q, 3 runs, citation-overlap metric).** Same reason as above; different shape, logged as E-3 follow-up.
+
+### The PM lesson
+
+**A safety claim without an independent audit is marketing.** Premise's strict-abstention story (D-010 / D-038) is the load-bearing trust commitment. Before D-042, the verifier was its own auditor — Haiku decides which claims survive, Haiku decides whether the verifier is doing its job. That's the configuration every regulator hates and every senior buyer probes for. After D-042, the audit is *external to the chassis it audits*. Same posture as financial auditors not auditing themselves.
+
+The wider lesson for AI PMs building safety-claim products: **for every "the bot won't X" commitment, build an independent test that uses a different model / a different prompt / a different operator.** The independence is the credibility — the bot saying it won't fabricate is interesting; another bot, with stricter rules, agreeing that it didn't is evidence.
+
+### What would break if we got it wrong
+
+Use Haiku-as-judge: the audit catches none of the failures *its own training* missed. We'd ship a green CI signal that means nothing. The right level of independence is "different model, different prompt".
+
+Skip the probe entirely: the strict-abstention story stays unaudited. The taskforce's AI-safety critique becomes the first comment under any LinkedIn post, and the honest answer is "we have 20 probes, no false-citation gate." That's a credibility-killer for an AI-safety product positioning.
+
+Run judge in production on every query: doubles runtime cost, slows TTFR (time-to-first-result) by Sonnet latency on every ask. Eval-only is the right scope until a real high-stakes deployment justifies the runtime layer.
+
+Threshold below 1.0: a "95% citation accuracy" floor lets through 1 in 20 unsupported claims. That's a fabrication rate higher than what generic LLMs produce on factual recall. The floor is 100% or the probe is theatrics.
+
+---
+
+## D-041 — Hypothesis revisions after analysis carry a deviation rationale (pre-registration pattern)
+
+### The story
+
+A senior researcher runs the analysis. The data comes back. Hypothesis 3 looks weaker than expected — but if she tweaks the wording from "high-income segments are price-insensitive" to "high-income segments are *less* price-sensitive than mid-tier", the verdict reads as confirmed. The deck reads cleaner. Nobody on the client side will notice.
+
+Every senior researcher has been in the room when this happens. The honest research tradition has a name for it: *p-hacking by rewording*. The academic world has a name for the solution: *pre-registration with deviation reports* — sites like AsPredicted let you register a hypothesis ahead of time, and any post-hoc revision has to carry an explicit deviation note that's preserved in the final write-up.
+
+The taskforce-critique round surfaced this through two voices that converged on the same answer:
+
+- **The academic peer-reviewer (critique 9a):** *"A workflow that generates hypotheses AND tests them AND writes the story risks confirmation bias at industrial scale. The same model proposed the hypotheses and analysed whether the data supports them. There's no methodological independence."*
+- **The behavioral scientist (4):** *"Hard locks invite workarounds — researchers will rephrase the hypothesis in another way or just not revise when they should. Soft warnings get clicked past by tired humans. The honest middle is a forced reflection moment."*
+
+Aaron explicitly deferred the call to the taskforce. The taskforce ruled: *soft warning with a required revision rationale + audit trail surfaced downstream*. Not a hard lock. The researcher owns their work — but the deviation is named, dated, and follows the work all the way to the final deck.
+
+### What we built
+
+Three coordinated changes:
+
+**Schema (migration 0012).** Two columns on the `hypotheses` table: `revised_after_analysis boolean default false` and `revision_rationale text`. Once set, they stay forever — the audit trail can't be quietly removed by clicking edit twice.
+
+**API (`PATCH /api/hypotheses/[id]`).** When (a) the hypothesis is currently `accepted` AND (b) an analysis row exists on the brief AND (c) the request body modifies a *structural* field (`statement`, `expected_direction`, `confirmation_criteria`, `assumptions`, `priority`), the route requires a non-empty `revision_rationale` in the body. If missing, returns `422` with a message explaining what's needed and why. Status changes (`accept`/`reject`/`proposed`) are NOT structural — they have their own audit trail. The structural-vs-non-structural distinction lives in `STRUCTURAL_HYPOTHESIS_FIELDS` in `src/lib/db/hypotheses.ts` so the rule is visible in one place.
+
+**UI (hypotheses artefact).** Two surfaces. **Before save**: if the edit is structural AND the hypothesis is accepted AND analysis exists, the Save button triggers a `window.prompt` that *requires* a non-empty rationale before the PATCH fires. Cancel returns to edit mode; empty rationale shows an alert. **After save**: the card shows a small amber "Revised post-analysis" tag in the header, with the rationale on hover and as a dedicated field in the expanded card view.
+
+**Cascade — the integrity flows all the way to the story angles.** In `story-generator.ts`, after the angle drafts come back from the model, any angle whose `supporting_hypothesis_ids` reference a revised-post-analysis hypothesis gets the deviation appended to its `omits` field automatically. The format: `"[Deviation: H3 was revised after analysis (rationale: ...)]"`. The outline drafter (`OUTLINE_SYSTEM`) already passes `omits` into the closing footer, so a regenerated outline shows the deviation in the markdown that gets copy-pasted into the final deliverable. The honest practice flows from schema → API → UI → angle artefact → outline export. No layer can silently swallow it.
+
+### Why this pattern, not a hard lock
+
+Aaron asked the taskforce to decide. The taskforce ruled against a hard lock because:
+
+1. **Hard locks invite workarounds.** A researcher who needs to revise a malformed hypothesis but is gated by a hard lock will either (a) delete the entire analysis to unlock — losing legitimate work — or (b) edit the hypothesis statement in a way the lock doesn't notice (e.g., changing only the verdict in their head). Neither outcome serves integrity.
+2. **Pre-registration in academia is a deviation report, not a lock.** AsPredicted, OSF, and the Cochrane review process all use "register-then-report-deviation" as the discipline. Premise inherits a real-world pattern that has decades of validation.
+3. **It matches D-018 / D-019 / D-036 / D-039.** Schema-enforced honesty is the project's compounding instinct — `omits` mandatory, `under_represents` mandatory, citations mandatory, caveats mandatory. Adding `revision_rationale` mandatory-when-structural-and-post-analysis is the same family of move.
+
+### What we deliberately did *not* build
+
+- **Hard locking on accepted hypotheses post-analysis.** Considered and rejected (above).
+- **Locking on regenerate-proposed-hypotheses.** `replaceProposedHypotheses` only touches `proposed` rows; the accepted set that fed analysis is preserved. So regenerate doesn't need a lock.
+- **Cascade to existing story angles that were generated *before* the revision happened.** A revision today doesn't retroactively rewrite yesterday's angle's `omits`. To pick up the deviation note, the user regenerates the angles. Same logic as how rejecting a hypothesis doesn't retroactively delete an analysis verdict (D-039). Existing angles are historical artefacts; the new state is new.
+- **Per-field structural classification refinement.** Today every change to `statement`/`expected_direction`/`confirmation_criteria`/`assumptions`/`priority` triggers the rationale prompt. A future iteration could distinguish typo-fixes from real revisions, but that's a UX layer on top of an already-honest API.
+- **Auto-decline-to-publish if too many revisions exist.** Tempting; out of scope for Wave 4. The audit trail is visible; the researcher's judgement on "is this still publishable?" is theirs.
+
+### The PM lesson
+
+**The right answer is rarely "lock the user out"; it's usually "make the trade-off visible."** The first instinct on a methodological-integrity gap is to prevent the user from doing the thing. The senior instinct is to let them do it AND make the cost of doing it visible AND make that visibility durable.
+
+Premise's whole engineering posture is structural enforcement of disciplines a senior researcher already practices — strict abstention (D-010), evidence-citation (D-018), mandatory omits (D-036), causal-claim discipline (D-039), and now deviation reporting (D-041). The connective tissue across all of them: the researcher's judgement stays in charge; the integrity stays visible to everyone downstream. That's the pattern.
+
+For AI PMs specifically: **when integrity and ergonomics conflict, the answer is usually "audit trail" not "rule enforcement."** Locks fight users; audit trails honour them and protect downstream readers at the same time.
+
+### What would break if we got it wrong
+
+Hard lock instead of rationale: researchers either tear up legitimate analyses to revise hypotheses, or they don't revise hypotheses that should be revised. Both outcomes degrade integrity worse than the soft prompt does.
+
+Skip the cascade into story angles: a revised hypothesis silently feeds the story-angle stage; the angles confidently make claims that lean on a hypothesis whose original wording was different. The deviation report exists on the hypothesis card but the angle's omits doesn't mention it, so the published deck inherits the rewording without ever surfacing it. The integrity exists at the source but doesn't reach the audience.
+
+Lock the proposed-regenerate flow too: the researcher's normal mid-flow tool — "regenerate the proposed set to explore alternatives" — gets blocked once they've ever run an analysis. Crippling. The accepted set is the integrity boundary; the proposed set is play space.
+
+Allow empty rationale strings: the audit trail becomes a checkbox the user clicks through, exactly the failure mode the Behavioral Scientist warned about. Required non-empty is the floor.
+
+---
+
+## D-040 — Variant ordering: the recommended variant first, audit-trail-aware selection
+
+### The story
+
+The taskforce's behavioral scientist (critique 4a) named something every senior researcher has felt but rarely articulated: *"You've built a product whose UX requires researchers to evaluate 3 variants × ~30 questions per study. That's 90 decisions per questionnaire. Decision-fatigue research is unambiguous on this — by question 12, the researcher is defaulting to whichever variant is on top, regardless of whether it's the best. So whatever ranking algorithm you use for variant order *is* the variant the bot picks."*
+
+The seductive response is to fight the UX physics — add gamification, force-rank requirements, hide the bot's preference. The honest response is to work *with* the physics: rather than randomising or alphabetising the variants, mark *which one fits the hypothesis best* and surface it first. Then the fatigue-default is a defensible default, not a random one. And every time the researcher overrides the recommendation, we capture it as an explicit signal — they actively picked something else.
+
+### What we built
+
+**Prompt change (`questions.ts` rule 10).** The variant generator now sets `is_recommended: true` on exactly one variant per question — the variant whose phrasing best fits the hypothesis being tested and the persona context. The other two are `false`. Post-generation, the generator normalises (if the model returns zero or multiple flagged variants, the first one wins so the audit trail is never ambiguous). Prompt version bumped `question-gen v3 → v4`.
+
+**Schema (migration 0012).** Two columns on `question_variants`. `is_recommended boolean default false` carries the model's pick. `selection_mode text` (nullable, enum `'active'` / `'default'`) carries the researcher's audit trail — set server-side when they pick a variant.
+
+**Server logic (`PATCH /api/questions/[id]`).** When the user updates `selected_variant_id`, the route flips `selection_mode` on the chosen variant: `default` if the chosen variant was the recommended one, `active` if not. All other variants on the question have their `selection_mode` reset to null (only one selection is active at a time). The client doesn't pass `selection_mode` — it's server-derived, so the client can't lie about whether the choice was active or default. Best-effort: if the variant lookup fails, we skip the mode write — `selection_mode` is observability, not correctness.
+
+**UI (`questions-artefact.tsx`).** Three visual changes. First, variants are sorted with the recommended one *first* (then by ordinal). Second, the recommended variant carries a subtle sky-tinted border and a quiet "Recommended" tag in its header — *quiet* on purpose, so a researcher who disagrees feels invited to override rather than shouted at. Third, the selected variant displays `default pick` or `active pick` next to "SELECTED", with a tooltip explaining which it is. The badges are decoration, not friction.
+
+### Why "default" is meaningful
+
+The selection_mode distinction looks small but is the bridge between fatigue-default and active choice:
+
+- **default**: the researcher accepted the recommended variant. Could be deliberate endorsement, could be fatigue. Either way the audit trail says "went with the bot's pick."
+- **active**: the researcher overrode the recommendation. Definitionally a deliberate signal — they read both, picked the non-recommended one.
+
+This becomes the input to later eval work: which question types is the bot's recommendation *trusted* on vs *overridden* on. That's a real signal about prompt quality the eval harness can act on without us writing a synthetic probe.
+
+### What we deliberately did *not* build
+
+- **A "force the researcher to look at all three" UI** (gating click on visible-time). Fights UX physics. Researchers who are tired *should* be able to accept the recommendation cheaply; the goal isn't to slow them down, it's to make the cheap path defensible.
+- **A bigger visual treatment for the recommendation** (banner, badge, scarlet flag). Tested against the principle: "the researcher disposes." A loud recommendation pushes researchers toward acceptance, defeating the audit-trail signal we want. The quiet treatment is the discipline.
+- **An eval probe for recommendation accuracy.** Flagged for Wave 5 alongside citation-accuracy and recommendation-quality probes. Shipping without one is acknowledged in the same way D-039 was.
+- **Re-ordering of *accepted* variants when the user changes their mind.** Selection_mode flips correctly; sort order doesn't churn mid-decision. The recommendation stays anchored at index 0 even after a non-recommended pick.
+
+### The PM lesson
+
+**When a UX physics critique lands, the move is rarely "fight the physics" — it's "redirect the physics to a defensible default."** Decision fatigue can't be argued away. But the *target* of the default can be redesigned. Random alphabetisation makes fatigue accept random variants; ranked-by-fit makes fatigue accept the best variant. Same physics, vastly better outcomes.
+
+For AI PMs specifically: **build affordances for the lazy version of your user, not just the engaged one.** The engaged user reads all three variants. The lazy user accepts whatever's on top. Premise's value to the lazy user is now anchored to a defensible default; Premise's value to the engaged user (overrides) generates an audit signal. Both modes are productive.
+
+### What would break if we got it wrong
+
+Order variants alphabetically by variant_type: the fatigue-default is "neutral_direct because A comes first", which is not always the best variant. The bot's quality contribution at the variant stage collapses to "format selection" rather than "methodological-fit ranking."
+
+Mark every variant as recommended: the signal collapses; there's no audit trail to learn from. We've lost the active-vs-default distinction without gaining anything.
+
+Loud recommendation UI: researchers feel pushed into the bot's pick. Active overrides drop sharply because the friction to override goes up. The audit signal that *did* exist gets corrupted by social-desirability bias against disagreeing with the bot.
+
+Hide the recommendation from the user entirely: the bot still ranks internally but doesn't tell the user, so the visual order *is* the recommendation by stealth. Same outcome, dishonest framing. The user deserves to know what the bot thinks.
+
+---
+
+## D-039 — The Recommendation artefact: the C-suite-shaped output the angles ladder up to
+
+### The story
+
+The CMO walks into the board meeting with twenty minutes. The brand director has the deck. Forty slides, every chart pixel-perfect. Three story angles printed in the appendix, each beautifully framed for a different audience. The CMO flips to page three and says one thing: *so what's the recommendation?*
+
+The deck doesn't have one. The deck has *findings*. The deck has *angles*. The deck has *verdicts*. The thing the CMO is asking for — the single causal claim, the single specific action, the single calibrated confidence — sits between the analysis chapter and the story chapter, and Premise was producing everything *around* it without producing *it*.
+
+Critique 5 in the taskforce round (the imagined Director of Consumer & Market Intelligence at a Fortune-100 brand) named this exactly: *"Premise stops one step short of what makes research land. CMOs don't read 'lede + three beats + omits.' They want the chart that lives in the board pack, the one-line 'X moved because Y' insight, and the explicit 'so what do we do about it' recommendation. Premise produces an outline; it doesn't produce a recommendation."*
+
+So we built the missing artefact.
+
+### What we built
+
+A new stage between analysis and story angles. One table (`recommendations`), one prompt (`RECOMMENDATION_SYSTEM`), one generator (Sonnet, forced tool_use), three API routes, one UI surface. Each recommendation has:
+
+- **`insight`** — a *causal* claim. "The decline in mid-tier purchase frequency is driven by the perception that the brand has lost its accessibility edge." Not "purchase frequency declined and accessibility perceptions also moved." Mechanism over correlation. The prompt explicitly rejects descriptive framing.
+- **`recommended_action`** — a *specific* action. "Reposition the mid-tier SKU to lean into the affordability narrative within Q3, led by brand and tested with the affordability-leaning persona segment." Not "consider repositioning." Generic is structurally rejected.
+- **`confidence`** — *calibrated*: `high` / `medium` / `low`. High requires the causal mechanism to be supported by ≥2 hypothesis verdicts or ≥1 verdict + ≥1 emergent pattern AND no contradicting caveats. Low covers thin evidence chains. Same discipline as claim-confidence in the strict-RAG layer (D-010) — calibrated, not laundered.
+- **`caveats`** — mandatory, ≥1, specific. Names the segments not represented, the timeframe limits, the methodological uncertainty. Generic ("results may vary") is rejected; the prompt requires specificity.
+- **`supporting_hypothesis_ids` + `supporting_emergent_patterns`** — the evidence chain. ≥1 from one or the other. No grounding = rejected by the post-generation filter.
+
+The artefact is propose-not-decide, like every other Premise output (D-019). The generator returns up to 3; the researcher accepts the one they ship with. *Fewer is better* is explicit in the prompt — if only one recommendation has a clean evidence chain, returning one beats padding to three. And if the evidence is genuinely too thin, the generator returns an empty array. The bot refuses to fabricate the spine of a deck.
+
+### The cascade — story generator now reads from the accepted Recommendation
+
+When story angles are generated for a brief, the angle prompt is now told: *if a recommendation is accepted, every angle's evidence chain MUST ladder up to it; the angles are different audiences for the same underlying insight, not different insights.* Without a recommendation, the story generator falls back to today's behaviour (drawing from hypotheses + emergent patterns directly).
+
+This is the cascade I almost missed. Building the Recommendation artefact in isolation would have left the angle stage producing the same three-flavours-of-an-insight output it produced before. Wiring them together is what turns the Recommendation from "a new stage" into "the spine the whole back-half of the product hangs from."
+
+The `story-gen` prompt-version bumped `v2 → v3`. The angle schema is unchanged.
+
+### What we deliberately did *not* build
+
+- **Auto-accept the top-priority Recommendation.** Tempting, fights propose-not-decide. Accept stays manual.
+- **Single-accept enforcement.** If the researcher accepts two recommendations, the story generator picks the most recent (highest ordinal). This avoids a UI nag that would block them mid-flow; the assumption is researchers don't routinely accept multiple.
+- **A "regenerate angles when recommendation changes" auto-trigger.** Confirmed earlier with Aaron: angles persist as the researcher's prior work; only future regenerations pick up the new state. Same logic as how rejecting a hypothesis doesn't retroactively delete an analysis verdict.
+- **A recommendation-quality eval probe.** Flagged for Wave 5 alongside citation-accuracy. Shipping without the probe is a known gap; the strict-output chassis (D-010), forced tool_use, and post-generation evidence-chain filter cover the floor; the probe would cover the ceiling.
+
+### The cross-cutting checklist this had to pass
+
+Every gate from CLAUDE.md was checked before shipping:
+
+| Gate | Status |
+|---|---|
+| Strict-output chassis (D-010) | ✓ forced tool_use, validated draft shape |
+| Prompt caching (D-021) | ✓ system block has `cache_control: ephemeral` |
+| Retry + jitter (D-027) | ✓ inherited via `tracedMessagesCreate` |
+| Generation lock (D-028) | ✓ `recommendations:${briefId}` lock key |
+| Atomic replace (D-026) | ✓ `replace_proposed_recommendations(...)` SQL function |
+| Zod validation (D-025) | ✓ `UpdateRecommendationBody` |
+| Safe-error responses (D-025) | ✓ all three routes wrapped |
+| Edit affordance (D-024) | ✓ inline edit on insight + action + caveats |
+| Cost telemetry (D-023) | ✓ inherited; `recommendation-gen` registered in prompt-versions |
+| Migration template (D-037) | ✓ explicit `GRANT … to service_role` + `enable row level security` |
+| Auth | ✓ `assertBriefAccess` + new `assertRecommendationAccess` |
+| Grounding disclosure (D-038) | ✓ new `"recommendations"` context in the shared component |
+
+### The PM lesson
+
+**The most consequential missing artefact in an AI product is rarely a feature gap — it's a *decision* gap.** Premise produced inputs (hypotheses), tests (verdicts), patterns (emergent), and outputs (angles). Every layer was beautifully shaped. None of them was a *decision*. A senior buyer reads research to make a decision; if the tool stops at the inputs to a decision, the buyer has to do the synthesising work themselves — which is exactly the work AI-for-research promises to remove.
+
+For AI PMs specifically: **map your product to your buyer's decision points, not to their workflow stages.** Workflow stages are how the researcher organises their day; decision points are how the C-suite values the output. Premise's workflow is brief → hypotheses → questionnaire → analysis → story. The buyer's decision points are: "what's the insight?" → "what should I do?" → "how confident are we?" → "what could go wrong?" The Recommendation artefact maps all four of those to one card. That's the format that lands in a board meeting.
+
+### What would break if we got it wrong
+
+Skip the Recommendation artefact: senior insights buyers click through to the live demo, read the story-angle output, and conclude that Premise "produces beautiful outputs but stops short of what we actually use." The product reads as an analyst tool, not a leadership tool. Same engineering, much smaller market.
+
+Make the recommendation field a free-text "summary": the model produces a paragraph that sounds like an insight but isn't causally grounded. Researchers ship it. A CMO acts on it. Three months later, the change didn't move the needle, and the recommendation was correlational, not causal. Trust gone.
+
+Skip the cascade into the story generator: angles continue to produce three flavours of the same finding, all of which now contradict the "decision" the Recommendation surfaced. The artefacts stop laddering up to each other. The product reads as a bag of features, not a coherent flow.
+
+Auto-accept the top-priority recommendation: propose-not-decide collapses at the most expensive layer in the product. The researcher loses the moment where their domain instinct overrules a model judgement — exactly the moment Premise's principle is meant to protect.
+
+---
+
+## D-038 — Strict abstention is the floor, not the ceiling (taskforce-driven reframe)
+
+### The story
+
+A senior researcher walks into a debrief with three new datapoints, two ambiguous findings, and a missing wave. The C-suite asks "so what?" Two answers are wrong:
+
+- *"I won't tell you anything I can't perfectly evidence."* — that's the bot Premise looked like, framed as "strict abstention." A junior insights buyer reads it as **a tool that refuses to do its job**.
+- *"Here's my confident reading."* — that's every generic LLM. A senior insights buyer reads it as **a tool that fabricates with conviction**.
+
+The right answer is what experienced researchers actually deliver: *"Based on what we have, my read is X with medium confidence. Here's the cut that would tighten it; here's what we don't yet have."* Calibrated, bounded, honest. Premise has always had the engineering for this — claim-level confidence levels live in the schema (`high`/`medium`/`low`); below-floor questions return a structured abstention that explicitly names `unanswered_aspects`. But the *positioning* was framed as marquee-abstention, which read as the refusing kind.
+
+The taskforce-critique round (see `docs/TASKFORCE_CRITIQUE.md` critiques 5b, 8) made it explicit: *the floor is "the bot won't fabricate"; the ceiling is calibrated estimation*. The engineering doesn't change; the framing does.
+
+### What we did
+
+Four small, coherent changes:
+
+- **Reframe the abstention narrative.** README.md, PITCH.md, PORTFOLIO.md: every place that called strict abstention the marquee feature now positions it as the floor, with calibrated estimation as what sits above. The product's behaviour is unchanged — the confidence-per-claim was already there; the abstention path was already structured.
+- **Soften the chat-pane abstention copy.** [src/components/canvas/chat-pane.tsx](src/components/canvas/chat-pane.tsx) — header "Honest abstention" became "Below the grounding floor"; body "Premise refuses to fabricate; the items below explain what's missing" became "The corpus does not contain enough to ground an answer to this question. The items below name what would close the gap — additional documents, or a clarifying refinement of the question." Same behaviour, calibrated tone.
+- **Reframe `omits` as positioning, not as confession.** Stories artefact: label "Omits:" became "Deliberately leaves out (address or own it):". The field stays in the schema (D-036) and stays mandatory; what changes is the framing — what an angle deliberately doesn't cover is a *positioning choice*, not a *failure*. Same `omits` value, different visual hierarchy.
+- **Add the `GroundingDisclosure` component.** [src/components/canvas/grounding-disclosure.tsx](src/components/canvas/grounding-disclosure.tsx) — a single-line italic label under every RAG-grounded artefact (chat answers, hypotheses list, analysis verdicts, story angles) naming the scope of what the bot is grounded in. The corpus is the moat *and* the blind-spot reproducer — making that explicit is honest framing, not a weakness.
+- **Add a "What Premise is *not*" section to the pitch.** PITCH.md lists three scope boundaries: not a validated-scale builder, not a substitute for qualitative interpretation, not yet hardened for paying clients. Knowing what a tool isn't is the same kind of discipline as the `omits` field on a story angle.
+
+### Why this matters more than a wording tweak
+
+Three reasons.
+
+**One — positioning compounds.** A LinkedIn launch frame of "AI that refuses to fabricate" attracts the audience that wants a bot that *can't help*. A frame of "calibrated honesty on top of a zero-fabrication floor" attracts the audience that wants a bot that *can deliver*. Same engineering; entirely different demand signal.
+
+**Two — the C-suite asymmetry.** The hierarchy of pain in commercial research, in order: (i) a fabricated stat in a deck; (ii) a confident-sounding wrong recommendation; (iii) "I don't know" with no context; (iv) calibrated uncertainty with a named gap. Premise was framed as protecting against (i) and (ii), which it does. The reframe says it also handles (iii) → (iv), which it always did but never said.
+
+**Three — the floor/ceiling pattern itself is a transferable AI-PM lesson.** Every AI product has structural guarantees (the floor) and emergent quality (the ceiling). PMs who lead with the floor recruit cautious users; PMs who lead with the ceiling recruit ambitious ones; PMs who lead with both win. The first audit-driven framing change was an asset reallocation, not a content change.
+
+### What we deliberately did *not* change
+
+- **No behaviour change.** The strict-output chassis (D-010), confidence-per-claim schema, abstention path, and verifier pass all behave identically. No prompt was modified. No eval shifted.
+- **No new feature was added.** The grounding-disclosure component is text in a styled wrapper. The four edits to artefact components are JSX one-liners.
+- **The `omits` field stays mandatory.** D-036's schema enforcement is preserved. What changed is the visual label — the structural truth-tax is intact.
+- **No new D-NNN per surface.** This entry covers all four framing edits as one coherent reframe driven by the taskforce critique round.
+
+### The PM lesson
+
+**A positioning gap is not a product gap.** When taskforce experts said "strict abstention reads wrong to a C-suite buyer," the temptation was to *build* a calibrated-estimation feature. Wrong move — the feature was already there. The fix was naming what already existed correctly. Save the build cycles for the gaps that *are* product gaps (Recommendation artefact, angle audience-diversity, citation-accuracy eval — those are the next D-NN entries).
+
+The wider AI-PM principle: **before scoping a feature in response to feedback, check whether the same behaviour already exists under a different name.** Half of "missing capability" feedback is actually positioning feedback in disguise.
+
+### What would break if we got it wrong
+
+Lead with "strict abstention" on the LinkedIn launch: senior insights buyers click through expecting a tool that hedges everything; they bounce. The post gets engagement from cautious technologists, not from researchers.
+
+Drop the `omits` field entirely to make angles read as confident: the bot starts producing beautiful, audience-skewed angles that hide their blind spots. The first time a client asks "what about Tier-3?" the researcher has no answer. The trust loss is permanent.
+
+Add the grounding-disclosure as a giant banner instead of a one-line italic: it reads as cover-your-arse legalese, which is worse than no disclosure at all. The discipline of *honest framing* is in the calibration of how much real-estate it gets, not just whether it exists.
+
+---
+
+## D-037 — Explicit `GRANT`s on every new table (Supabase removed the implicit default)
+
+### The story
+
+Imagine the building-management company that hosts your agency office sends a memo: "From October, any new room you fit out on your floor needs an extra access-control form signed before the door-card system will open it. Existing rooms are grandfathered." You don't need to do anything for the rooms you already have. But the very next time you add a meeting room, if you skip the form, nobody — not even you — can get in. The card readers stare at you blankly and beep `42501`.
+
+Supabase sent us that memo on 2026-05-14. The rooms are tables. The card-reader system is the Data API (PostgREST + supabase-js + GraphQL — the thing browser code uses to talk to the database). The form is a `GRANT` statement.
+
+### What changed
+
+Supabase has historically auto-exposed every table in the `public` schema to the Data API. That convenience default is going away:
+
+- **2026-05-30** — default flips for *brand-new Supabase projects*. The `premise` project predates this, so it's untouched.
+- **2026-10-30** — enforced on *all existing projects*. Any table created **after that date** in our project will not be visible to supabase-js / PostgREST / GraphQL unless the migration explicitly grants access. Tables that already exist on that date keep their grants forever.
+
+If a grant is missing, the Data API returns Postgres error `42501` and helpfully tells you the exact `GRANT` statement that would fix it.
+
+### Premise's exposure
+
+We use `supabase-js` everywhere data flows. Two clients in play:
+
+- **Server-side, `service_role` key** ([src/lib/db/supabase.ts:17-25](src/lib/db/supabase.ts#L17-L25)) — the master key. Used by every API route, the ingestion CLI, the eval harness. This is the path that breaks if grants are missing.
+- **Browser-side, `anon` key** ([src/lib/auth/browser.ts](src/lib/auth/browser.ts)) — only ever calls `supabase.auth.signInWithOtp` / `signOut`. Never reads tables directly. So today no `anon` grants are needed.
+
+I grepped all ten existing migrations — zero `GRANT` statements. They've been working because of the implicit default. Existing tables stay grandfathered, so migrations 0001–0010 keep working without modification. The risk lives entirely in future migrations.
+
+### What we did
+
+Three small additions, no schema change:
+
+1. **[supabase/migrations/_template.sql](supabase/migrations/_template.sql)** — a canonical starting point. `CREATE TABLE` followed by `grant select, insert, update, delete on public.your_table to service_role`, then `alter table … enable row level security`. The `authenticated` and `anon` grants sit commented-out, ready for the first time a feature genuinely needs a browser-side read.
+2. **A line in [CLAUDE.md](CLAUDE.md) conventions** pointing future migrations at the template so neither a future Claude session nor future-you forgets.
+3. **This entry.**
+
+We did **not** retrofit grants onto migrations 0001–0010. Existing tables keep their existing grants forever; touching them would be churn without benefit. We also did not switch to a direct Postgres connection to dodge the change — that would tear out `supabase-js`, the auth integration (D-032), and the RLS story (D-017) for a problem that two lines of SQL per future migration solves.
+
+### Why the discipline matters more than this specific change
+
+Strict abstention (D-010), SQL-bounded confidentiality (D-016), RLS-on-by-default (D-017), Zod at every API boundary (D-025), and now explicit grants — these are the same instinct expressed at five different layers. **Every promise the product makes about data behaviour should be enforceable at a layer below the application code.** Application code gets refactored, prompts get rewritten, features get added in a hurry on Friday afternoon. The schema does not. So the schema is where guarantees live.
+
+The Supabase memo is helpful because it forces explicitness on a thing we'd been getting for free. Free is fragile. Explicit is durable.
+
+### The PM lesson
+
+**Read your platform's announcement emails as schema commitments, not as IT news.** When an infrastructure provider tells you they're tightening a default, the right reaction isn't "add to backlog" — it's "where in our migration patterns does this assumption show up, and how do I bake the new default in *now* so the change is a no-op when the deadline arrives?" The cost of doing it today is fifteen minutes. The cost of finding out the day a future migration silently 42501s production is a much worse afternoon.
+
+The wider lesson for an AI PM: **platform memos are leverage**. Most teams treat them as overhead. The teams that read them carefully and update their patterns ahead of the deadline ship calmer launches, accumulate fewer "we'll fix it later" tickets, and have a paper trail of decisions that look prescient in retrospect. This is one of those.
+
+### What would break if we got it wrong
+
+Skip the template + convention: six months from now, in a rush to ship a Phase 6 feature, a new migration creates `public.surveys` without an explicit grant. Tests pass locally because the dev machine still has the old default. The deploy goes out on a Monday. By Tuesday morning every `GET /api/briefs/:id/surveys` is returning a 500 with a `42501` in the logs. The fix is two lines of SQL, but the incident — and the trust hit with whichever researcher was mid-wave on the live demo — is real.
+
+Retrofit grants onto migrations 0001–0010 just to feel tidy: ten more migrations to test, each one a small chance of breaking something downstream (RPC functions, indexes, RLS interactions). Higher cost, zero benefit, since the existing tables are grandfathered.
+
+Switch to a direct Postgres connection to "avoid the whole problem": rip out `@supabase/supabase-js` and `@supabase/ssr`, lose the magic-link auth that D-032 ships on top of them, lose the RLS path that D-017 set up. A nuclear answer to a question that two `GRANT` lines per migration already answers.
+
 ---
 
 ## How to use this doc going forward
 
-- **Every new decision gets a numbered entry below.** D-037, D-038, etc.
+- **Every new decision gets a numbered entry below.** D-038, D-039, etc.
 - **When you push back on a decision and we change it, we don't delete the entry — we add a new one with the change and link back.** That's how teams remember why things looked one way and now look another.
 - **When you onboard someone (a freelancer, a future co-founder, or yourself in three months), this is what they read first.** The case study tells them what we built; this tells them why.

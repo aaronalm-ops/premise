@@ -1,0 +1,10 @@
+{
+  "id": "citation-accuracy-003",
+  "type": "citation-accuracy",
+  "description": "Multi-claim answer (named segments) — every claim must be independently supported",
+  "question": "What named consumer segments were identified in the 2026 brand trust study?",
+  "expects": {
+    "min_claims": 2,
+    "min_support_rate": 1.0
+  }
+}
