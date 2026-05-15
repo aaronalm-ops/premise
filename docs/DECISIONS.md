@@ -1398,6 +1398,186 @@ Two taskforce-driven tightenings of the same prompt (see `docs/TASKFORCE_CRITIQU
 
 ---
 
+## D-045 — Commercial-safety guardrail on the public corpus
+
+### The story
+
+After the first 66-document seed of the public library landed, Aaron raised a specific worry: *"I think when I'm going commercial with this, I could just forget to exclude these."* The "these" being the documents whose licences forbid commercial reuse — the KPMG/Melbourne AI-trust report (CC-BY-NC-SA), the trade-body methodology pieces marked `permission-licensed` (publishers want explicit grants), and the documents whose licence is still `unknown` because the verification didn't happen at ingest time.
+
+This is the classic "we'll remember at the right moment" failure mode. The right moment is the commercial pivot. The pivot day is the day most likely to have other things on the operator's mind. *Remembering* is the wrong mechanism.
+
+The taskforce IP-lawyer rule from D-044 said it clearly: a takedown notice that lands during commercial use, on content the corpus shouldn't have surfaced commercially, is the kind of incident that ends a small product. The defensive answer is to build the boundary *now*, in the database, with a single switch that toggles it.
+
+### What we built
+
+**Schema-level guardrail (migration 0014).** A generated column on the documents table:
+
+```sql
+alter table documents add column if not exists commercial_use_blocked boolean
+  generated always as (
+    licence is null
+    or licence in ('unknown', 'cc-by-nc-4.0', 'cc-by-nc-sa-4.0', 'permission-licensed')
+  ) stored;
+```
+
+The column is computed by Postgres from the `licence` value. Application code cannot write to it directly — it's a generated column. Editing the licence in the manifest, re-running `npm run seed-public-corpus`, flows the new licence to the documents table, and the generated column recomputes. **The single source of truth for "is this document commercial-safe?" is the licence value, normalised through one rule.**
+
+**Retrieval-time filter (`src/lib/rag/retrieval.ts`).** When the env var `PREMISE_COMMERCIAL_MODE` is set to `true` / `1` / `yes`, `retrieve()`:
+
+1. Slightly over-fetches from `match_chunks` (2× the requested top-k) so the post-filter doesn't leave the result short.
+2. Queries the small set of `commercial_use_blocked=true` document IDs.
+3. Drops any returned chunk whose `document_id` is in the blocked set.
+4. Returns the top-k from what remains.
+
+Default: `PREMISE_COMMERCIAL_MODE=false`. Every existing portfolio-phase deployment is unaffected. Setting it to `true` is the *act* of going commercial — the filter is impossible to "forget" because flipping the variable *is* the going-commercial event.
+
+**Helpers (`src/lib/db/commercial-safety.ts`).** Three functions: `isCommercialModeActive()` reads the env var with the standard truthy parsing; `getCommerciallyBlockedDocumentIds()` returns the blocked set for retrieval; `partitionPublicLibraryBySafety()` returns documents grouped by safety status with the reason for blocking.
+
+**Audit script (`npm run audit-public-corpus`).** Lists every document in the public library partitioned into `BLOCKED` (with grouped reasons: NC, unverified, permission-required) and `SAFE`. Includes percentages and clear next-step instructions for unblocking. Designed to be run at any moment — particularly the moment *before* flipping the commercial-mode flag. You see exactly what's about to disappear.
+
+### Why this pattern (and not deletion)
+
+Two alternatives considered and rejected:
+
+**Alternative 1 — delete the NC documents now.** Considered for ~30 seconds. Rejected because (a) it's irreversible — re-ingesting requires re-downloading; (b) it permanently loses the counter-balance value of the KPMG/Melbourne piece for portfolio use; (c) it doesn't actually solve the problem because the *next* corpus refresh might pull more NC content and we'd be back where we started. The pattern needs to be structural, not point-in-time.
+
+**Alternative 2 — application-layer flag without the generated column.** Considered. Rejected because it puts the "what's safe?" rule in application code, where future changes to the licence enum would silently drift from the safety rule. The generated column ties them together: change the licence enum → revisit the `add column ... generated always as (...)` formula in one place → the whole pipeline auto-recomputes.
+
+The pattern we chose is the same as D-016's SQL-boundary confidentiality enforcement, applied to a different invariant. *Don't trust application code to remember structural commitments.* Bake them in.
+
+### Why `permission-licensed` is in the blocked set
+
+The taxonomy in D-044 introduced `permission-licensed` for documents whose publishers require explicit written permission. The semantics are ambiguous: it could mean "we need permission and haven't asked" or "we have permission for some specific scope." The audit script makes this distinction by surfacing every permission-licensed entry in the blocked list with the note *"verify granted scope before unblocking"*.
+
+When Aaron emails ESOMAR / MRS / AAPOR and receives a permission email, the workflow is:
+
+1. File the permission text in `docs/PUBLIC_CORPUS_LICENSING.md`.
+2. Update the manifest entry's `licence` from `permission-licensed` to something specific that captures the grant — e.g., `attribution-permitted` if the grant allows attribution-credited reuse, or `cc-by-4.0` if the publisher releases under that.
+3. Re-run `npm run seed-public-corpus`. The generated column recomputes; the document moves from BLOCKED to SAFE.
+
+This forces the editorial discipline (verify the specific permission scope per document) without making the pattern itself complicated.
+
+### What we deliberately did *not* build
+
+- **Auto-deletion of NC content at commercial-mode flip.** Considered. Rejected: too aggressive. Filtering at retrieval time means the documents remain in the DB and can be unblocked if Aaron later obtains a commercial licence (e.g., KPMG/Melbourne grants a commercial use waiver for Premise's launch tier). Auto-deletion forecloses that option.
+- **An alert when commercial-mode is on AND blocked documents exist.** Nice to have; pre-launch the audit script covers it. If commercial-mode ever runs in CI, an automatic alert here would be cheap to add.
+- **A more granular licence model** (commercial-OK-with-cap, commercial-OK-with-revenue-share, etc.). Out of scope. The current binary (blocked / safe) covers the immediate need; granular licensing is a commercial-tier problem to solve at the commercial pivot, not before.
+- **Removing `permission-licensed` from the blocked set.** Considered making it "safe by default since it implies permission was granted." Rejected: too easy to mis-tag at ingest. Block-by-default is the conservative posture; unblock individually after verifying the permission scope.
+
+### The cross-cutting checklist this had to pass
+
+| Gate | Status |
+|---|---|
+| Migration template (D-037) | ✓ ALTER on existing table; existing grants apply |
+| Schema-boundary enforcement (D-016 pattern) | ✓ generated column; app code can't bypass |
+| Strict TypeScript | ✓ DocumentRecord extended; types match schema |
+| Default-safe (existing deploys unaffected) | ✓ default `PREMISE_COMMERCIAL_MODE=false` |
+| Reversible (don't delete content) | ✓ filter at retrieval, not deletion |
+| Audit visibility | ✓ `npm run audit-public-corpus` |
+
+### The PM lesson
+
+**Build the gate before the pivot, not at the pivot.** Commercial pivots are stressful moments. The launch checklist has fifty items. Anything that depends on *remembering* a specific class of content at that moment is a class of incident waiting to happen. The cheap and durable answer is the same as for confidentiality (D-016): make the gate structural, gate the gate with a single switch, and let the switch be the pivot itself.
+
+Wider AI-PM principle: **when a worry is "I'll forget X at the right moment," that's not a checklist problem, it's an architecture problem.** Checklists fail at scale. Architecture doesn't.
+
+### What would break if we got it wrong
+
+Delete the NC documents now: we lose the counter-balance value of KPMG/Melbourne (the single strongest non-Ipsos AI-trust piece) for the entire portfolio phase. Wrong tradeoff.
+
+Application-layer filter without the DB-level boundary: a future refactor that adds a second retrieval path forgets to apply the filter. Suddenly NC content leaks through a different surface. The DB-level column closes that off — every retrieval path queries the same table, the same flag is always there.
+
+`permission-licensed` defaulting to SAFE: a manifest entry that's never been verified silently surfaces in commercial mode. The publisher's takedown email arrives. Trust gone.
+
+No env var, just always-on filter: portfolio phase loses access to documents that ARE legitimately surface-able during portfolio use (KPMG/Melbourne's NC clause is "non-commercial OK," not "blocked entirely"). The portfolio loses depth for no gain.
+
+---
+
+## D-044 — Public-corpus metadata + bulk-ingest scaffold (taskforce-driven)
+
+### The story
+
+D-033 created the public library — a project tagged `is_public=true`, shared across all users, that solved Premise's cold-start problem. Phase 5 / Audit-2 confirmed the *mechanism* works. What it didn't ship was the *editorial machinery*: the per-document provenance, the legal-bucket tracking, the source-type taxonomy, the curator's voice. Without those, the library is a heap of PDFs anyone could scrape; with them, the library is *Premise's curation IP*.
+
+The public-corpus taskforce (`docs/PUBLIC_CORPUS_TASKFORCE.md`) convened ten experts and produced six themes. The first two — *legal-bucket-tracking is non-negotiable* and *curator notes are the moat* — became this commit.
+
+### What we built
+
+**Migration 0013** adds seven metadata columns to the `documents` table:
+
+| Column | Type | Purpose |
+|---|---|---|
+| `licence` | text | SPDX-style identifier — `public-domain`, `ogl-uk-v3`, `cc-by-4.0`, `attribution-permitted`, `permission-licensed`, `unknown` |
+| `licence_url` | text | URL of the publisher's terms-of-use page that supports the licence claim |
+| `source_type` | text + CHECK | One of nine taskforce-recommended buckets: government / academic / trade-body / agency / analyst / think-tank / methodology / regional / meta |
+| `publication_year` | int + CHECK | Recency filter (constrained to 1900–2100) |
+| `geography` | text | `us` / `uk` / `eu` / `mena` / `india` / `sea` / `global` |
+| `topic_tags` | text[] (GIN-indexed) | Lowercase kebab-case tags, e.g. `["consumer-expenditure", "household-spending"]` |
+| `curators_note` | text | One paragraph in Aaron's voice — *researcher-to-researcher tone, never AI-generated* |
+
+Four B-tree indexes (`source_type`, `publication_year`, `geography`) + one GIN index (`topic_tags`) for filtered-retrieval lanes — the RAG layer can scope a query "what does the *academic* literature say about price sensitivity?" by source_type before embedding search (RAG Engineer critique 9). ALTER on the existing table is grandfathered for grants per D-037, so no new GRANT statements.
+
+**Types layer.** `Licence` and `SourceType` types in [src/lib/rag/types.ts](src/lib/rag/types.ts) mirror the schema enums. `DocumentRecord` carries the new fields end-to-end. The manifest below enforces the SPDX-style values at compile time even though the DB column is free text.
+
+**Ingestion API extension.** [src/lib/db/documents.ts](src/lib/db/documents.ts) `ingestDocument` now accepts an optional `metadata` object that flows through to the insert. On content-hash duplicates the function calls the new `updateDocumentMetadata` helper — meaning **editing the manifest re-flows the editorial layer without re-embedding**. This is what makes the seed script safely re-runnable as the curator's voice evolves.
+
+**Bulk-ingest scaffold.** Two new scripts plus a new directory:
+
+- [scripts/public-library-manifest.ts](scripts/public-library-manifest.ts) — the typed manifest. Each entry: local file path + title + publisher + year + source_type + geography + tags + licence + licence_url + curator note. Three commented-out examples (BLS / Pew / Likert 1932) show the shape.
+- [scripts/seed-public-corpus.ts](scripts/seed-public-corpus.ts) — the bulk ingester. Finds-or-creates the public library project, iterates the manifest, extracts text from each local PDF/DOCX/TXT via the existing `extractFromFile` pipeline (D-031), calls `ingestDocument` with the manifest metadata. Reports per-entry: ✓ newly ingested / ↻ metadata refreshed / ⊘ missing on disk / ✗ failed. Tallies total embedding tokens + estimated cost.
+- `corpus/public-library/` — local-only directory for downloaded source PDFs. Gitignored except for the `.gitkeep`. The manifest is the canonical record; the PDFs are local working files.
+
+**npm script.** `npm run seed-public-corpus` added to `package.json` alongside the existing `seed-public-library` (project creation) — the two are complementary: one creates the library project, the other populates it.
+
+**[docs/PUBLIC_CORPUS_LICENSING.md](docs/PUBLIC_CORPUS_LICENSING.md)** — the licensing tracker. Four legal buckets defined upfront (public domain / CC-OGL / attribution-permitted / permission-licensed), verbatim licence-statement templates for each bucket, an empty permission-emails section for ESOMAR / MRS / AAPOR / AMA / ARF, a per-document audit log, and explicit playbooks for "what to do if publisher terms change" and "what to do if a takedown notice arrives." This is the IP lawyer's load-bearing gate from the taskforce.
+
+### Why a manifest + script, not a CLI flag per field
+
+Considered three approaches:
+
+1. **Extend `ingest.ts` with `--licence=… --source-type=… --geography=…` flags.** Eight flags per file × 200 files = brittle, error-prone, hard to review.
+2. **A CSV manifest.** Simple but loses TypeScript-level validation on the licence and source-type enums.
+3. **A typed TS manifest.** Compile-time enforcement of the enums; one file to edit; one command to run; easy to diff in PRs.
+
+Chose 3. The manifest *is* the editorial record. Reading `public-library-manifest.ts` is reading the curated library.
+
+### What we deliberately did *not* build
+
+- **A web UI for managing manifest entries.** Premature. The manifest will be edited by Aaron in a code editor; a UI would be cosmetic and add maintenance burden.
+- **An automatic content-fetcher** that downloads PDFs from the URLs Perplexity returns. Deliberate omission: download has to be human-confirmed to vet the licence footer before ingestion. Automating it would invite the IP-trap the taskforce warned about.
+- **A `decommission-document` script** that removes a document and its chunks when a publisher's terms change. Worth building once the corpus crosses ~50 documents; for week 1 a manual SQL cleanup is fine. Logged as a follow-up in `PUBLIC_CORPUS_LICENSING.md`.
+- **A UI surface in the canvas** that filters retrieved chunks by `source_type` (e.g. "show only academic"). The metadata is now retrievable; the UI can use it later. The retrieval-layer integration is its own future commit.
+- **An auto-generated curator note from the bot.** Hard rule: curator notes are in Aaron's voice. The whole point of D-038 / D-044 is that the editorial layer is the moat — automating it collapses the moat into a commodity.
+
+### The cross-cutting checklist this had to pass
+
+| Gate | Status |
+|---|---|
+| Migration template (D-037) | ✓ ALTER on existing table; existing grants apply |
+| Strict TypeScript (no implicit any) | ✓ |
+| Zod validation | n/a (CLI script, not API surface) |
+| Cost telemetry (D-023) | ✓ inherits via the existing `ingestDocument` path |
+| Retry (D-027) | ✓ inherited |
+| Editorial honesty (D-038) | ✓ curator notes are non-AI-generated by rule |
+
+### The PM lesson
+
+**The editorial layer is the most overlooked moat in AI products.** Premise's competitors can scrape every PDF that's publicly accessible; they cannot replicate Aaron's curator voice, his choice of which 200 to ingest, his categorisation, his "start here" reading list. That entire layer lives in a manifest file and a curator's-note field. Tiny structural artefact; large positioning consequence.
+
+For AI PMs specifically: **before you scale data, scale the *taste* layer that selects what data goes in.** Bigger corpus is rarely better; better-curated corpus is almost always better.
+
+### What would break if we got it wrong
+
+Skip the licence column: a year from now a publisher's takedown notice lands, and you can't tell which of 200 documents is at risk. Recovery becomes "delete everything and start over."
+
+Auto-generate curator notes: the editorial moat collapses. Every prospect who clicks through reads bot-flavoured paragraphs that read identically to every other AI-curated library. The "I built this" provenance disappears.
+
+Allow ambiguous licences ("free to read" with no terms statement): the corpus accumulates legal fragility. When commercial pivot arrives, every ambiguous-licence document becomes a procurement-team blocker.
+
+Skip the manifest typing: a manifest of 200 entries with typo'd `source_type` values silently retrieves wrong, and there's no compile-time signal that anything's broken.
+
+---
+
 ## D-043 — Cost-at-scale calculator: the answer to "how much per study?"
 
 ### The story

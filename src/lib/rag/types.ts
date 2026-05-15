@@ -8,6 +8,40 @@ export type Project = {
   created_at: string;
 };
 
+// D-044: source-type taxonomy for the public corpus. Matches the CHECK
+// constraint in migration 0013. The taskforce-recommended buckets from
+// docs/PUBLIC_CORPUS_TASKFORCE.md. The retrieval layer can filter by
+// source_type before embedding search for focused queries
+// (e.g. "what does the academic literature say about X").
+export type SourceType =
+  | "government"
+  | "academic"
+  | "trade-body"
+  | "agency"
+  | "analyst"
+  | "think-tank"
+  | "methodology"
+  | "regional"
+  | "meta";
+
+// D-044: SPDX-style licence identifiers. Free text in the DB to allow
+// growth, but the manifest typings enforce these standard values for
+// consistency. CC-BY-NC and CC-BY-NC-SA are tracked explicitly even
+// though they prohibit commercial use — the NC clause flags content
+// that must be removed or relicensed before Premise's commercial pivot
+// (per the public-corpus taskforce IP-lawyer rule).
+export type Licence =
+  | "public-domain"
+  | "ogl-uk-v3"
+  | "cc0-1.0"
+  | "cc-by-4.0"
+  | "cc-by-sa-4.0"
+  | "cc-by-nc-4.0"
+  | "cc-by-nc-sa-4.0"
+  | "attribution-permitted"
+  | "permission-licensed"
+  | "unknown";
+
 export type DocumentRecord = {
   id: string;
   project_id: string;
@@ -19,6 +53,18 @@ export type DocumentRecord = {
   char_count: number | null;
   chunk_count: number | null;
   created_at: string;
+  // D-044 public-corpus metadata
+  licence: Licence | null;
+  licence_url: string | null;
+  source_type: SourceType | null;
+  publication_year: number | null;
+  geography: string | null;
+  topic_tags: string[];
+  curators_note: string | null;
+  // D-045: generated column. True when licence is NC, unknown, null, or
+  // permission-licensed-unverified. Application code MUST NOT update this
+  // directly — the DB computes it from licence.
+  commercial_use_blocked: boolean;
 };
 
 export type RetrievedChunk = {

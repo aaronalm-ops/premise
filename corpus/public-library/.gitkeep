@@ -1,0 +1,14 @@
+This directory holds downloaded source PDFs / DOCX / TXT files for the
+Premise Public Library, ingested via `npm run seed-public-corpus`.
+
+Files in this directory are NOT committed to the repo (see .gitignore).
+The manifest in `scripts/public-library-manifest.ts` is the canonical
+record of what's in the public library.
+
+Workflow:
+  1. Run a Perplexity prompt from docs/PUBLIC_CORPUS_SHOPPING_LIST.md.
+  2. Download each report's PDF into this folder, naming it predictably
+     (e.g. `bls-cex-2024.pdf`, `pew-mobile-fact-sheet-2024.pdf`).
+  3. Add an entry to scripts/public-library-manifest.ts pointing at the
+     local file plus its provenance metadata.
+  4. Run `npm run seed-public-corpus`.

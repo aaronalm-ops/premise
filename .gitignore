@@ -47,3 +47,7 @@ next-env.d.ts
 # evals
 /evals/.config.json
 /evals/results/
+
+# public corpus source files — manifest is canonical, downloaded PDFs stay local
+/corpus/public-library/*
+!/corpus/public-library/.gitkeep
