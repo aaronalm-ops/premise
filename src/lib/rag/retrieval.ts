@@ -2,10 +2,12 @@
 //
 // Confidentiality is enforced at the SQL boundary (D-016): match_chunks
 // filters by an explicit array of project_ids. The user's own project_id is
-// always passed; public-library project_ids are also passed (D-033) so the
-// shared corpus is automatically searched alongside the user's private data.
-// No cross-project leakage: only the project IDs we explicitly include can
-// contribute chunks.
+// always passed; public-library project_ids are appended only when the
+// project has opted in via include_public_libraries (D-047). The public
+// library is admin-managed and read-only; researchers turn it on per
+// project when they want shared-corpus support, and off for confidential
+// client work where they want only their own ingested material to ground
+// outputs.
 //
 // Commercial-safety filter (D-045): when PREMISE_COMMERCIAL_MODE is on,
 // retrieval drops chunks whose source document is `commercial_use_blocked`
@@ -14,7 +16,7 @@
 // AI-trust report from leaking into commercial outputs.
 
 import { getSupabaseServer } from "@/lib/db/supabase";
-import { getPublicLibraryIds } from "@/lib/db/projects";
+import { getProject, getPublicLibraryIds } from "@/lib/db/projects";
 import { embed } from "@/lib/rag/voyage";
 import {
   getCommerciallyBlockedDocumentIds,
@@ -35,8 +37,13 @@ export async function retrieve(
   });
   const queryEmbedding = embeddings[0];
 
-  const publicIds = await getPublicLibraryIds();
-  // Avoid duplicating the user's project_id if it happens to be public.
+  // D-047: only include the public library when the project opted in.
+  // Public-library projects themselves don't merge other public libraries.
+  const project = await getProject(projectId);
+  const optedIn = Boolean(project?.include_public_libraries);
+  const isSelfPublic = Boolean(project?.is_public);
+  const publicIds =
+    optedIn && !isSelfPublic ? await getPublicLibraryIds() : [];
   const allProjectIds = [
     projectId,
     ...publicIds.filter((id) => id !== projectId),

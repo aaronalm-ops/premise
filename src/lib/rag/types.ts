@@ -6,6 +6,9 @@ export type Project = {
   description: string | null;
   confidentiality: Confidentiality;
   created_at: string;
+  is_public?: boolean;
+  owner_id?: string | null;
+  include_public_libraries?: boolean;
 };
 
 // D-044: source-type taxonomy for the public corpus. Matches the CHECK

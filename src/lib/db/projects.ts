@@ -78,3 +78,21 @@ export async function getProject(id: string): Promise<Project | null> {
   if (error) throw new Error(`getProject: ${error.message}`);
   return (data ?? null) as Project | null;
 }
+
+// D-047: per-project opt-in flag for retrieval-time inclusion of public-
+// library chunks. The public library itself is read-only (admin-managed
+// via scripts/seed-public-corpus.ts); this flag controls whether a user's
+// own project pulls from it during /ask, hypothesis-gen, persona-gen, etc.
+export async function setProjectIncludePublicLibraries(
+  id: string,
+  include: boolean,
+): Promise<void> {
+  const supabase = getSupabaseServer();
+  const { error } = await supabase
+    .from("projects")
+    .update({ include_public_libraries: include })
+    .eq("id", id);
+  if (error) {
+    throw new Error(`setProjectIncludePublicLibraries: ${error.message}`);
+  }
+}

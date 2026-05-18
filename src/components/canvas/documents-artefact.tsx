@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DocumentRecord } from "@/lib/rag/types";
+import type { DocumentRecord, Project } from "@/lib/rag/types";
 import { PublicLibrariesSection } from "./public-libraries-section";
 
 type Props = {
@@ -16,17 +16,25 @@ type IngestStatus =
 
 export function DocumentsArtefact({ projectId }: Props) {
   const [docs, setDocs] = useState<DocumentRecord[]>([]);
+  const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<IngestStatus>({ kind: "idle" });
   const [url, setUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isPublicProject = Boolean(project?.is_public);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`/api/projects/${projectId}/documents`);
-      const data = await r.json();
-      setDocs(data.documents ?? []);
+      const [docsRes, projRes] = await Promise.all([
+        fetch(`/api/projects/${projectId}/documents`),
+        fetch(`/api/projects/${projectId}`),
+      ]);
+      const docsData = await docsRes.json();
+      const projData = await projRes.json();
+      setDocs(docsData.documents ?? []);
+      setProject(projData.project ?? null);
     } finally {
       setLoading(false);
     }
@@ -98,54 +106,69 @@ export function DocumentsArtefact({ projectId }: Props) {
                 ? "empty"
                 : `${docs.length} doc${docs.length === 1 ? "" : "s"}`}
           </span>
+          {isPublicProject && (
+            <span className="rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-700 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-300">
+              Public library — read-only
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-1">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.docx,.doc,.md,.txt,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) uploadFile(f);
-              e.target.value = "";
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={status.kind === "uploading"}
-            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] font-medium uppercase tracking-wider disabled:opacity-40"
-          >
-            Upload
-          </button>
-        </div>
+        {!isPublicProject && (
+          <div className="flex items-center gap-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.doc,.md,.txt,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadFile(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={status.kind === "uploading"}
+              className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] font-medium uppercase tracking-wider disabled:opacity-40"
+            >
+              Upload
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 px-4 py-3">
-        <PublicLibrariesSection />
-
-        <div className="flex items-center gap-1">
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste a URL to fetch (article, public report, blog post)"
-            disabled={status.kind === "uploading"}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") ingestUrl();
-            }}
-            className="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--color-foreground)]/10"
+        {!isPublicProject && (
+          <PublicLibrariesSection
+            projectId={projectId}
+            includePublicLibraries={Boolean(project?.include_public_libraries)}
+            onChange={refresh}
           />
-          <button
-            type="button"
-            onClick={ingestUrl}
-            disabled={status.kind === "uploading" || !url.trim()}
-            className="rounded-md border border-[var(--color-border)] px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider disabled:opacity-40"
-          >
-            Fetch
-          </button>
-        </div>
+        )}
+
+        {!isPublicProject && (
+          <div className="flex items-center gap-1">
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Paste a URL to fetch (article, public report, blog post)"
+              disabled={status.kind === "uploading"}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") ingestUrl();
+              }}
+              className="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--color-foreground)]/10"
+            />
+            <button
+              type="button"
+              onClick={ingestUrl}
+              disabled={status.kind === "uploading" || !url.trim()}
+              className="rounded-md border border-[var(--color-border)] px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider disabled:opacity-40"
+            >
+              Fetch
+            </button>
+          </div>
+        )}
 
         {status.kind === "uploading" && (
           <p className="text-xs text-[var(--color-muted-foreground)]">
@@ -188,23 +211,27 @@ export function DocumentsArtefact({ projectId }: Props) {
                 <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">
                   {d.chunk_count ?? 0} chunks
                 </span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (
-                      !window.confirm(
-                        `Delete "${d.title}" from the corpus? Cannot undo.`,
+                {!isPublicProject && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (
+                        !window.confirm(
+                          `Delete "${d.title}" from the corpus? Cannot undo.`,
+                        )
                       )
-                    )
-                      return;
-                    await fetch(`/api/documents/${d.id}`, { method: "DELETE" });
-                    refresh();
-                  }}
-                  title="Delete document"
-                  className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]"
-                >
-                  Delete
-                </button>
+                        return;
+                      await fetch(`/api/documents/${d.id}`, {
+                        method: "DELETE",
+                      });
+                      refresh();
+                    }}
+                    title="Delete document"
+                    className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]"
+                  >
+                    Delete
+                  </button>
+                )}
               </li>
             ))}
           </ul>

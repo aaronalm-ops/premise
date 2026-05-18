@@ -3,6 +3,66 @@ import { getSupabaseServer } from "@/lib/db/supabase";
 import { IdParam } from "@/lib/validation/schemas";
 import { HttpError, safeError } from "@/lib/api/safe-error";
 import { assertProjectAccess, requireUser } from "@/lib/auth/server";
+import {
+  getProject,
+  setProjectIncludePublicLibraries,
+} from "@/lib/db/projects";
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const user = await requireUser();
+    const { id } = IdParam.parse(await params);
+    await assertProjectAccess(id, user.id);
+    const project = await getProject(id);
+    if (!project) throw new HttpError(404, "Project not found.");
+    return NextResponse.json({ project });
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+// PATCH supports a narrow set of mutations that don't deserve their own
+// route (D-047: include_public_libraries toggle).
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const user = await requireUser();
+    const { id } = IdParam.parse(await params);
+    await assertProjectAccess(id, user.id);
+
+    const body = (await req.json()) as {
+      include_public_libraries?: boolean;
+    };
+
+    // Public libraries can't be edited from the UI — including changing
+    // their inclusion flag (the flag is meaningless on public projects).
+    const existing = await getProject(id);
+    if (!existing) throw new HttpError(404, "Project not found.");
+    if (existing.is_public) {
+      throw new HttpError(
+        403,
+        "Public libraries are read-only — they can't be edited from the UI.",
+      );
+    }
+
+    if (typeof body.include_public_libraries === "boolean") {
+      await setProjectIncludePublicLibraries(
+        id,
+        body.include_public_libraries,
+      );
+    }
+
+    const updated = await getProject(id);
+    return NextResponse.json({ project: updated });
+  } catch (err) {
+    return safeError(err);
+  }
+}
 
 export async function DELETE(
   _req: Request,
