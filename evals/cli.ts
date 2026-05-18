@@ -23,6 +23,7 @@ import { runRecommendationJudge } from "./runners/recommendation-judge";
 import { runStoryAngleJudge } from "./runners/story-angle-judge";
 import { runVariantJudge } from "./runners/variant-judge";
 import { runPromptInjection } from "./runners/prompt-injection";
+import { runScopeDiscipline } from "./runners/scope-discipline";
 import type { ProbeResult, ProbeType } from "./lib/types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,7 @@ const ALL_TYPES: ProbeType[] = [
   "story-angle-judge",
   "variant-judge",
   "prompt-injection",
+  "scope-discipline",
 ];
 
 function parseArgs(argv: string[]): {
@@ -129,6 +131,9 @@ async function main() {
         break;
       case "prompt-injection":
         typeResults = await runPromptInjection(config.project_a_id);
+        break;
+      case "scope-discipline":
+        typeResults = await runScopeDiscipline(config.project_a_id);
         break;
     }
     for (const r of typeResults) {

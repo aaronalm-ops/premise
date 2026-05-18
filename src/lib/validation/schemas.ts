@@ -38,6 +38,29 @@ export const UpdateBriefBody = z
     message: "patch must include at least one field",
   });
 
+// D-049: brief-scope clarifier patch. Each axis answer is a free-text string
+// (e.g. "global", "ASEAN", "Mass Affluent") or the literal "skipped" if the
+// researcher dismissed the question. Status flips to 'answered' or 'skipped'
+// once the researcher has resolved every nudged axis.
+const ScopeAxis = z.enum([
+  "geography",
+  "time_horizon",
+  "audience",
+  "channel",
+  "market_maturity",
+]);
+
+export const UpdateBriefScopeBody = z
+  .object({
+    clarifications: z.record(ScopeAxis, z.string().min(1)).optional(),
+    status: z
+      .enum(["not_required", "pending", "answered", "skipped"])
+      .optional(),
+  })
+  .refine((b) => b.clarifications !== undefined || b.status !== undefined, {
+    message: "patch must include clarifications or status",
+  });
+
 // ===== Hypotheses =====
 
 export const UpdateHypothesisBody = z

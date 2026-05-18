@@ -1,13 +1,24 @@
 // Hypothesis generation pipeline with prompt caching + telemetry.
 // Reuses the strict-output chassis from D-010 / D-018:
 // retrieve -> rerank -> Sonnet with forced tool_use -> citation discipline.
+//
+// D-049: now also carries the researcher's scope clarifications (Layer 1 of
+// the brief-scope discipline) into the prompt, and forces a structural
+// disclosure on each draft hypothesis about where its scope came from.
 
 import { MODELS } from "@/lib/llm/anthropic";
 import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import { HYPOTHESIS_SYSTEM } from "@/lib/prompts/hypothesis";
 import { retrieve } from "@/lib/rag/retrieval";
 import { rerank } from "@/lib/rag/reranker";
-import type { HypothesisDraft, RetrievedChunk } from "@/lib/rag/types";
+import { SCOPE_AXES, type HypothesisDraft, type RetrievedChunk, type ScopeClarifications, type ScopeDimensions, type ScopeInheritedFrom } from "@/lib/rag/types";
+
+const SCOPE_INHERITED_VALUES: ScopeInheritedFrom[] = [
+  "brief",
+  "clarifier",
+  "corpus",
+  "model_default",
+];
 
 const HYPOTHESIS_TOOL = {
   name: "propose_hypotheses",
@@ -63,6 +74,12 @@ const HYPOTHESIS_TOOL = {
               description:
                 "Research value. 5 = novel + measurable + load-bearing for the brief. 1 = obvious / low-value.",
             },
+            scope_inherited_from: {
+              type: "string",
+              enum: SCOPE_INHERITED_VALUES,
+              description:
+                "Where this hypothesis's scope came from. 'brief' if every scope axis in the statement traces to brief phrasing; 'clarifier' if any axis came from a researcher clarification; 'corpus' if you took scope from chunks without brief/clarifier support; 'model_default' if you generated scope from background knowledge. Mark honestly — the UI surfaces non-brief/clarifier values as a review prompt.",
+            },
           },
           required: [
             "statement",
@@ -72,6 +89,7 @@ const HYPOTHESIS_TOOL = {
             "supporting_chunk_ids",
             "contradicting_chunk_ids",
             "priority",
+            "scope_inherited_from",
           ],
         },
       },
@@ -86,12 +104,50 @@ export type GenerateHypothesesInput = {
   projectId: string;
   briefId?: string | null;
   count?: number; // 3-10, default 6
+  // D-049: the researcher's resolutions on any scope axis the brief left
+  // silent. When present, the generator is authorised to use these as scope
+  // sources alongside the brief.
+  scopeClarifications?: ScopeClarifications | null;
+  // D-049: passed in for prompt context — what the brief itself specifies.
+  // The generator uses this to decide which clarifier answers actually
+  // matter (an axis the brief already specifies doesn't need re-stating).
+  scopeDimensions?: ScopeDimensions | null;
 };
 
 export type GenerateHypothesesResult = {
   drafts: HypothesisDraft[];
   retrieved_chunks: RetrievedChunk[];
 };
+
+function formatScopeContext(
+  dimensions: ScopeDimensions | null | undefined,
+  clarifications: ScopeClarifications | null | undefined,
+): string {
+  const lines: string[] = [];
+  for (const axis of SCOPE_AXES) {
+    const dim = dimensions?.[axis];
+    const clarification = clarifications?.[axis];
+
+    if (dim?.specified) {
+      lines.push(
+        `- ${axis}: BRIEF SPECIFIES — "${dim.brief_mention ?? "(see brief)"}"`,
+      );
+    } else if (clarification && clarification !== "skipped") {
+      lines.push(
+        `- ${axis}: CLARIFIER AUTHORISED — "${clarification}"`,
+      );
+    } else if (clarification === "skipped") {
+      lines.push(
+        `- ${axis}: brief silent; researcher chose to skip → DO NOT add scope on this axis`,
+      );
+    } else {
+      lines.push(
+        `- ${axis}: brief silent; no clarification → DO NOT add scope on this axis`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
 
 export async function generateHypotheses(
   input: GenerateHypothesesInput,
@@ -118,8 +174,13 @@ export async function generateHypotheses(
     .map((c) => `<chunk id="${c.id}">\n${c.content}\n</chunk>`)
     .join("\n\n");
 
+  const scopeContext = formatScopeContext(
+    input.scopeDimensions ?? null,
+    input.scopeClarifications ?? null,
+  );
+
   const count = Math.min(10, Math.max(3, input.count ?? 6));
-  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Retrieved chunks (your only source of grounding)\n${corpus}\n\nCall propose_hypotheses now with exactly ${count} hypotheses.`;
+  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Scope authority for this brief (D-049)\n${scopeContext}\n\n# Retrieved chunks (your only source of grounding for CLAIMS — not for scope)\n${corpus}\n\nCall propose_hypotheses now with exactly ${count} hypotheses.`;
 
   const response = await tracedMessagesCreate(
     {
@@ -145,15 +206,23 @@ export async function generateHypotheses(
 
   const validIds = new Set(chunks.map((c) => c.id));
   const drafts = input_data.hypotheses
-    .map((h) => ({
-      ...h,
-      supporting_chunk_ids: (h.supporting_chunk_ids ?? []).filter((id) =>
-        validIds.has(id),
-      ),
-      contradicting_chunk_ids: (h.contradicting_chunk_ids ?? []).filter((id) =>
-        validIds.has(id),
-      ),
-    }))
+    .map((h) => {
+      const scope: ScopeInheritedFrom = SCOPE_INHERITED_VALUES.includes(
+        h.scope_inherited_from,
+      )
+        ? h.scope_inherited_from
+        : "model_default";
+      return {
+        ...h,
+        supporting_chunk_ids: (h.supporting_chunk_ids ?? []).filter((id) =>
+          validIds.has(id),
+        ),
+        contradicting_chunk_ids: (h.contradicting_chunk_ids ?? []).filter(
+          (id) => validIds.has(id),
+        ),
+        scope_inherited_from: scope,
+      };
+    })
     .filter(
       (h) =>
         h.supporting_chunk_ids.length > 0 ||

@@ -1,0 +1,19 @@
+{
+  "id": "scope-discipline-002",
+  "type": "scope-discipline",
+  "description": "Brief omits time horizon — hypotheses must not pin a specific window even if the corpus discusses a particular one",
+  "brief_title": "Sustainability signals in consumer goods purchasing",
+  "brief_content": "We want to understand which signals consumers actually use when assessing sustainability claims, where the trust gap is largest, and which interventions move consideration. Audience: consumer goods marketers and consumer insights leads.",
+  "expects": {
+    "min_hypotheses": 5,
+    "forbidden_substrings_in_statement": [
+      "in the past 12 months",
+      "over the past 12 months",
+      "in the last year",
+      "post-pandemic",
+      "since 2020",
+      "since the pandemic"
+    ],
+    "all_scope_from_brief_or_clarifier": true
+  }
+}

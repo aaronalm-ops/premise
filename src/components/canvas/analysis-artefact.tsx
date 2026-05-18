@@ -263,6 +263,15 @@ export function AnalysisArtefact({
           </div>
         )}
 
+        {hasData && analysis!.data.some((d) => d.source_type === "csv") && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-50">
+            <span className="font-semibold uppercase tracking-wider">CSV note (D-053)</span>
+            <span className="ml-1">
+              Premise reads CSVs as text references for synthesis, not as a query engine. It sees roughly the first ~5% of rows and cannot run chi-square, regression, or significance tests. Verdicts and counts you'll see are illustrative of the visible extract — for statistical computation, run external tools and upload the result tables.
+            </span>
+          </div>
+        )}
+
         {hasData && (
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">

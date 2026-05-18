@@ -6,6 +6,7 @@
 import { MODELS } from "@/lib/llm/anthropic";
 import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import { ANALYSIS_SYSTEM } from "@/lib/prompts/analysis";
+import { rectifyVerdicts } from "@/lib/rag/consistency-checks";
 import type {
   AnalysisData,
   AnalysisGenerationResult,
@@ -187,7 +188,16 @@ export async function generateAnalysis(
     )
     .join("\n\n");
 
-  const userPrompt = `# Brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypotheses}\n\n# Recommended personas\n${personas}\n\n# Accepted questionnaire items (selected variants)\n${questions || "(none)"}\n\n# Uploaded data sources\n${dataBlocks}\n\nCall analyse_data now. Verdict every accepted hypothesis. Surface 2-4 emergent patterns. Name study-wide caveats.`;
+  // D-053: when any CSV is in scope, the analyser sees a truncated text view
+  // of the table (per the TOTAL_DATA_BUDGET_CHARS cap below). We can't run
+  // statistical tests over the full file. Surfacing this in the prompt
+  // header so the verdicts come out honestly calibrated.
+  const hasCsv = input.data.some((d) => d.source_type === "csv");
+  const csvFraming = hasCsv
+    ? `\n\n# Notice on tabular data\nOne or more of the uploaded data sources is a CSV. You are seeing a TEXT EXCERPT of each CSV (typically ~5% of rows, truncated to fit the context budget). You cannot compute chi-square, regression, or significance tests over the full file from what you see. Counts and percentages you cite are illustrative of the visible rows, not population estimates. If a verdict would require a statistical test to support, set verdict='inconclusive' with a caveat naming the missing test.\n`
+    : "";
+
+  const userPrompt = `# Brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypotheses}\n\n# Recommended personas\n${personas}\n\n# Accepted questionnaire items (selected variants)\n${questions || "(none)"}${csvFraming}\n\n# Uploaded data sources\n${dataBlocks}\n\nCall analyse_data now. Verdict every accepted hypothesis. Surface 2-4 emergent patterns. Name study-wide caveats.`;
 
   const response = await tracedMessagesCreate(
     {
@@ -218,9 +228,28 @@ export async function generateAnalysis(
 
   // Defensive filtering: only keep verdicts on hypotheses that were actually
   // passed in. Drop any hallucinated ID.
-  const verdicts = (data.hypothesis_verdicts ?? []).filter((v) =>
+  const rawVerdicts = (data.hypothesis_verdicts ?? []).filter((v) =>
     validHypothesisIds.has(v.hypothesis_id),
   );
+
+  // D-050: verdict-direction-check. Independent Sonnet pass cross-checks
+  // each verdict's prose direction against its label. Mismatches are
+  // rewritten with an auto-appended caveat so the correction is visible.
+  const hypothesesById = new Map(
+    input.acceptedHypotheses.map((h) => [
+      h.id,
+      {
+        statement: h.statement,
+        expected_direction: h.expected_direction,
+      },
+    ]),
+  );
+  const verdicts = await rectifyVerdicts({
+    verdicts: rawVerdicts,
+    hypothesesById,
+    projectId: input.projectId,
+    briefId: input.briefId,
+  });
 
   return {
     hypothesis_verdicts: verdicts,

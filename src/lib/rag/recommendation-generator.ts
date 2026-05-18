@@ -13,6 +13,7 @@
 import { MODELS } from "@/lib/llm/anthropic";
 import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import { RECOMMENDATION_SYSTEM } from "@/lib/prompts/recommendation";
+import { rectifyRecommendations } from "@/lib/rag/consistency-checks";
 import type {
   Analysis,
   Hypothesis,
@@ -69,6 +70,11 @@ const RECOMMENDATION_TOOL = {
               description:
                 "Specific caveats. Segments not represented, timeframe limits, methodological uncertainty.",
             },
+            requires_behavioral_validation: {
+              type: "boolean",
+              description:
+                "D-051: true iff the recommended action belongs to a class (underwriting / pricing / hard-operational / regulatory) that the underlying data class (self-report / stated-preference) cannot license without behavioural validation. When true, confidence must NOT be 'high' — cap at 'medium' or 'low'. When false, the action is itself a way of gathering behavioural evidence (further research, communications, segmentation) and the prerequisite is satisfied by the act of doing it.",
+            },
           },
           required: [
             "insight",
@@ -77,6 +83,7 @@ const RECOMMENDATION_TOOL = {
             "supporting_hypothesis_ids",
             "supporting_emergent_patterns",
             "caveats",
+            "requires_behavioral_validation",
           ],
         },
       },
@@ -175,21 +182,39 @@ export async function generateRecommendations(
   }
 
   const validHypothesisIds = new Set(input.acceptedHypotheses.map((h) => h.id));
-  const drafts = data.recommendations
-    .map((r) => ({
-      ...r,
-      supporting_hypothesis_ids: (r.supporting_hypothesis_ids ?? []).filter(
-        (id) => validHypothesisIds.has(id),
-      ),
-      supporting_emergent_patterns: r.supporting_emergent_patterns ?? [],
-      caveats: r.caveats ?? [],
-    }))
+  const rawDrafts = data.recommendations
+    .map((r) => {
+      // D-051: enforce the confidence cap server-side. The prompt asks the
+      // model to do it; the server makes sure it actually happens.
+      const requiresValidation = Boolean(r.requires_behavioral_validation);
+      const cappedConfidence: typeof r.confidence =
+        requiresValidation && r.confidence === "high" ? "medium" : r.confidence;
+      return {
+        ...r,
+        supporting_hypothesis_ids: (r.supporting_hypothesis_ids ?? []).filter(
+          (id) => validHypothesisIds.has(id),
+        ),
+        supporting_emergent_patterns: r.supporting_emergent_patterns ?? [],
+        caveats: r.caveats ?? [],
+        confidence: cappedConfidence,
+        requires_behavioral_validation: requiresValidation,
+      };
+    })
     .filter(
       (r) =>
         (r.supporting_hypothesis_ids.length > 0 ||
           r.supporting_emergent_patterns.length > 0) &&
         r.caveats.length > 0,
     );
+
+  // D-050: action/caveat consistency-check. Recommendations whose own caveats
+  // undermine the action get their confidence auto-downgraded one step plus a
+  // visible note explaining why. Same pattern as the analysis direction check.
+  const drafts = await rectifyRecommendations({
+    drafts: rawDrafts,
+    projectId: input.projectId,
+    briefId: input.briefId,
+  });
 
   return { drafts };
 }

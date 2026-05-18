@@ -102,6 +102,41 @@ export type AskResult = {
 
 // ===== Phase 2: briefs + hypotheses =====
 
+// D-049: brief-scope discipline. Five axes the hypothesis generator must
+// inherit scope from. New axes can be added without a schema migration —
+// scope_dimensions is jsonb.
+export const SCOPE_AXES = [
+  "geography",
+  "time_horizon",
+  "audience",
+  "channel",
+  "market_maturity",
+] as const;
+export type ScopeAxis = (typeof SCOPE_AXES)[number];
+
+export type ScopeAxisState = {
+  specified: boolean;
+  brief_mention: string | null;
+};
+
+export type ScopeDimensions = Record<ScopeAxis, ScopeAxisState>;
+
+// Researcher's resolution for any axis the clarifier surfaced. A string per
+// axis: a literal value ("global", "ASEAN", "Mass Affluent") or "skipped" if
+// the researcher dismissed the question.
+export type ScopeClarifications = Partial<Record<ScopeAxis, string>>;
+
+export type ScopeClarifierStatus =
+  | "not_required"
+  | "pending"
+  | "answered"
+  | "skipped";
+
+// D-049: corpus-skew is detected over the project's own documents only.
+// Public-library content is assumed global-by-curation (see PUBLIC_CORPUS_
+// TASKFORCE.md), so we never trigger a clarifier nudge from public skew.
+export type CorpusSkew = Partial<Record<ScopeAxis, { dominant: string; share: number }>>;
+
 export type Brief = {
   id: string;
   project_id: string;
@@ -109,7 +144,19 @@ export type Brief = {
   content: string;
   created_at: string;
   updated_at: string;
+  scope_dimensions: ScopeDimensions | null;
+  scope_corpus_skew: CorpusSkew | null;
+  scope_clarifications: ScopeClarifications | null;
+  scope_clarifier_status: ScopeClarifierStatus | null;
 };
+
+// D-049: source of the scope used to generate this hypothesis. Anything
+// other than 'brief' or 'clarifier' triggers an amber tag on the card.
+export type ScopeInheritedFrom =
+  | "brief"
+  | "clarifier"
+  | "corpus"
+  | "model_default";
 
 export type HypothesisStatus = "proposed" | "accepted" | "rejected";
 
@@ -134,6 +181,9 @@ export type Hypothesis = {
   // touches the revised hypothesis.
   revised_after_analysis: boolean;
   revision_rationale: string | null;
+  // D-049: which path set this hypothesis's scope. Amber tag fires on
+  // 'corpus' / 'model_default'.
+  scope_inherited_from: ScopeInheritedFrom | null;
   created_at: string;
   updated_at: string;
 };
@@ -147,6 +197,7 @@ export type HypothesisDraft = {
   supporting_chunk_ids: string[];
   contradicting_chunk_ids: string[];
   priority: 1 | 2 | 3 | 4 | 5;
+  scope_inherited_from: ScopeInheritedFrom;
 };
 
 export type HypothesisGenerationResult = {
@@ -374,6 +425,11 @@ export type Recommendation = {
   supporting_hypothesis_ids: string[];
   supporting_emergent_patterns: string[];
   caveats: string[];
+  // D-051: true when the action falls in the underwriting / pricing /
+  // hard-operational / regulatory class AND the underlying data is
+  // self-report or stated-preference. Confidence is capped at 'medium' in
+  // the generator when this is true.
+  requires_behavioral_validation: boolean;
   status: HypothesisStatus;
   rejection_reason: string | null;
   created_at: string;
@@ -387,4 +443,5 @@ export type RecommendationDraft = {
   supporting_hypothesis_ids: string[];
   supporting_emergent_patterns: string[];
   caveats: string[];
+  requires_behavioral_validation: boolean;
 };

@@ -15,6 +15,7 @@ import { QuestionsArtefact } from "./questions-artefact";
 import { AnalysisArtefact } from "./analysis-artefact";
 import { RecommendationsArtefact } from "./recommendations-artefact";
 import { StoriesArtefact } from "./stories-artefact";
+import { ScopeClarifier } from "./scope-clarifier";
 
 type Props = { projectId: string | null };
 
@@ -98,6 +99,7 @@ export function ArtefactsPane({ projectId }: Props) {
               loading={loading}
               onChange={refresh}
             />
+            <ScopeClarifier brief={brief} onResolved={refresh} />
             <HypothesesArtefact
               brief={brief}
               hypotheses={hypotheses}

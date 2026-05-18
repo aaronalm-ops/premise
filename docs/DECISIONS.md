@@ -1398,6 +1398,250 @@ Two taskforce-driven tightenings of the same prompt (see `docs/TASKFORCE_CRITIQU
 
 ---
 
+## D-053 — Honest CSV framing in the analyser (dogfood-driven)
+
+### The story
+
+The same ASEAN-survey dogfood that drove D-049 / D-050 / D-051 also surfaced the most architectural finding of the session. Aaron uploaded a 10,000-row simulated CSV (1.5 MB). The analyser produced verdicts that repeatedly said *"only ~528 rows visible; full 10,000-row dataset is required for a reliable test."*
+
+That number isn't accidental — it's mechanical. `analysis-generator.ts` enforces a `TOTAL_DATA_BUDGET_CHARS = 80_000` budget; a 1.5 MB CSV is ~1.5 million chars; truncation ratio ≈ 5.3%, which is ~530 of the 10,000 rows. Premise was honestly reading the truncated extract and admitting it. The bug wasn't the truncation — that's correct context-budget management. The bug was the *positioning*: the model was implicitly treating the CSV as if it could be analysed end-to-end, then complaining when it couldn't.
+
+We're not adding a compute layer this round (DuckDB-as-tool is its own future decision entry). What we're doing is framing the limitation honestly so verdicts and emergent patterns come out calibrated to what the model can actually see.
+
+### What we built
+
+**Prompt-level framing in [`src/lib/prompts/analysis.ts`](src/lib/prompts/analysis.ts).** A new "CSV data is treated as text, not as a query engine" section. Counts and percentages cited from a CSV excerpt are illustrative of patterns in the visible rows, not population estimates. Significance claims (chi-square, regression, "this difference is significant") must be set to `inconclusive` with a caveat naming the missing test. Emergent patterns from CSV data are pattern-suggestions to test externally, not confirmed findings.
+
+**Inline user-prompt notice in [`analysis-generator.ts`](src/lib/rag/analysis-generator.ts).** When any `AnalysisData.source_type === "csv"` is in scope, a one-paragraph CSV-framing notice is prepended to the user message — the model sees both the system rule and a runtime acknowledgement that this specific run is on CSV data.
+
+**UI notice on the Analysis artefact.** When the analysis has any CSV data attached, an amber callout appears above the data-sources list: *"Premise reads CSVs as text references for synthesis, not as a query engine. It sees roughly the first ~5% of rows and cannot run chi-square, regression, or significance tests. Verdicts and counts you'll see are illustrative of the visible extract — for statistical computation, run external tools and upload the result tables."*
+
+`analysis-gen` bumped to `v2-2026-05-18`. No schema migration needed.
+
+### What we considered
+
+- **Add DuckDB-as-tool now.** Real, valuable, and out of scope for this push. The CSV-framing fix is honest about the current capability; DuckDB is a capability extension. Two different decisions, two different entries.
+- **Increase the context budget so more rows fit.** Doesn't change the structural problem (the model still can't compute statistics over text) and inflates cost on every analysis call. Wrong lever.
+- **Auto-summarise the CSV at ingest (run a fixed battery of cross-tabs and ingest those as text alongside).** Reasonable, but it's another way of doing the DuckDB work without the SQL surface, and it adds a new failure mode (the summariser's output is what the analyser sees, not the raw rows). Park until the DuckDB conversation happens — at that point we'll pick the right approach in one go.
+
+### The PM lesson
+
+**The honest answer to a capability gap is to name it, not to hide it.** The H10/H8 verdicts went out marked CONFIRMED with prose that contradicted them partly because the model was straining to produce a verdict over data it couldn't see. Telling the model "you can't see most of this; act accordingly" lets it return `inconclusive` honestly rather than guessing. A model-can-do-less prompt is sometimes a model-does-better prompt.
+
+### What would break if we got it wrong
+
+Skip the UI notice and keep only the prompt rule: researchers upload CSVs and get conservatively-hedged verdicts with no explanation of why. They assume the model is being unhelpful. The amber callout converts "model is sandbagging" into "model is being honest about a known limitation."
+
+Apply the framing to all data types, not just CSV: transcripts and notes don't have the same truncation pattern, and the framing would mis-position them as analytically untrustworthy when they're fine. The framing only fires when `source_type === "csv"`.
+
+---
+
+## D-052 — Story-angle audience precision (taskforce-driven)
+
+### The story
+
+The same ASEAN dogfood produced four story angles. The "Travel Avidity Myth, Unpacked" angle was methodologically the sharpest output of the session — it directly debunked the "Gen Z travel boom" assumption with the conversion + frequency data behind it. The third-party critic graded it B- with a sharp note: *"tourism boards rarely fund myth-busting research."*
+
+Half right. The angle's `target_audience` field said *"Consumer insights leads and strategy directors at travel brands, tourism boards, and research agencies in ASEAN, whose job is to ensure generational travel narratives used in planning and communications are grounded in data rather than cultural assumption."* That bundles three audiences with completely different commercial incentives: insights leads fund methodology-corrective work; tourism boards don't. By naming all three in one field, the angle inherits the commercial viability of its *most reluctant buyer*.
+
+The fix isn't to ban debunk angles — it's to make sure each angle names ONE buyer whose budget *moves* on this angle's direction.
+
+### What we built
+
+Two prompt-level changes in [`src/lib/prompts/story.ts`](src/lib/prompts/story.ts):
+
+1. **`target_audience` is one buyer + one job-to-be-done, not a list.** New Rule 1 explicitly bans bundled audience fields. When an angle would target multiple roles, the prompt forces the model to pick the single buyer whose budget actually moves on the angle's direction. Secondary audiences can live in the beats; the For: field is one person.
+
+2. **Lede-direction / audience-fit rule.** New Rule 4: when the angle's lede is a *negation of market expectation* (debunk, myth-bust, "the boom is a myth" framing), the named audience must be one whose budget is *unlocked* by the correction — methodology leads at research agencies, risk committees, regulators, peer-reviewed publication editors. Growth-stage commercial buyers are explicitly excluded because their budget is *threatened*, not unlocked, by a negation. A debunk aimed at a growth buyer is rejected.
+
+`story-gen` bumped to `v4-2026-05-18`. No schema change — `target_audience` was already a single string field; the model was just bundling. The prompt now teaches it not to.
+
+### What we considered
+
+- **Kill debunk angles entirely.** Wrong — methodology-corrective work is real, valuable, and well-funded by the right audience. The fix is matching, not banning.
+- **Add a structured `target_audience` schema (role, organisation_type, job_to_be_done).** Tempting, but it'd over-engineer a free-text field that already works when the prompt enforces the discipline. If we see the bundling pattern return after this prompt change, structured fields become the obvious next step.
+
+### The PM lesson
+
+**Audience precision is a commercial-fit guardrail, not a UX preference.** A bundled audience field reads as "comprehensive" but actually inherits the most reluctant buyer's incentives. The discipline of *picking one* forces the angle to be sellable, not just defensible. Same principle as `omits` (D-036/D-038): make the trade-off visible by naming the boundary explicitly.
+
+### What would break if we got it wrong
+
+Allow bundled audiences: every angle's `target_audience` becomes a comma-separated list of plausibly-interested roles. Each angle is technically defensible to every named audience but commercially valuable to none of them. The "elite commercial architecture" the taskforce critic identified erodes back into generic stakeholder-list framing.
+
+Skip the lede-direction rule: debunk angles keep getting aimed at growth-stage commercial buyers. The angles look sharp but don't commission. Researchers stop using the angle stage because the angles don't survive contact with the buyer.
+
+---
+
+## D-051 — Recommendation action-class constraint (dogfood-driven)
+
+### The story
+
+The ASEAN dogfood produced a recommendation telling BNPL providers to *"introduce Gen Z-specific credit limit caps and mandatory repayment period disclosures for travel-category BNPL, within the current product cycle."* The recommendation identified a real signal: heavy BNPL usage among Gen Z travellers (15-33% of trip spend). The action it proposed, however, would not survive five minutes in a credit risk committee. No Chief Risk Officer changes underwriting on *stated-preference survey data*. Risk teams need transactional ledger evidence, repayment histories, bureau scores — the kind of data Premise doesn't have and isn't designed to ingest.
+
+The recommendation generator was getting two things right (signal identification, action specificity) and one thing wrong (matching the action class to the data class). The action it proposed was downstream of *behavioural* evidence; the data we showed it was *self-report*.
+
+### What we built
+
+**Action-class discipline section added to [`src/lib/prompts/recommendation.ts`](src/lib/prompts/recommendation.ts).** Names two classes of action:
+
+- *Self-report can license:* further research, product/proposition discovery, communications & positioning, segmentation hypotheses. These are actions that themselves gather the behavioural evidence — the prerequisite is satisfied by doing them.
+- *Self-report CANNOT license without behavioural validation:* credit underwriting changes, hard caps, pricing decisions, hard operational thresholds, product withdrawal, regulatory posture. These are revenue-bearing or risk-bearing operational decisions that need transactional evidence before deployment.
+
+**New required tool-schema field `requires_behavioral_validation: boolean`** on each recommendation. When true, confidence is capped at "medium" — server-side enforced in `recommendation-generator.ts` regardless of what the model says.
+
+**Migration 0017** adds the column to `recommendations` and redefines `replace_proposed_recommendations` to persist it.
+
+**UI**: amber chip *"Validate against behavioural data"* on the recommendation card when the flag is true. Tooltip explains the constraint and that the action is "a hypothesis to test, not a directive to ship" until behavioural data confirms the mechanism. Same audit-trail chassis as D-040 / D-041 / D-049.
+
+`recommendation-gen` bumped to `v2-2026-05-18`.
+
+### What we considered
+
+- **Block the action entirely when it falls in the unsafe class.** Tempting but wrong — the recommendation IS valuable as a hypothesis to test. Blocking it erases the signal; flagging it preserves the signal while preventing the misuse.
+- **Use the existing `caveats` field instead of a new boolean.** Caveats are read by humans, not by the system. A structured boolean lets the UI render the warning visibly and lets the consistency check (D-050) reason about it.
+- **Hardcode the action-class taxonomy in code rather than the prompt.** Considered, but the model needs to interpret the action's nature — "introduce credit caps" is clearly in the unsafe class; "test BNPL messaging on travel intent" is in the safe class. Asking the model to classify is more flexible than a rule-based mapping that would have to be maintained by hand.
+
+### The PM lesson
+
+**Match the action class to the data class.** Every action sits in a category — communications, segmentation, operations, risk, regulation. Every dataset sits in a category — self-report, behavioural, transactional, panel, longitudinal. Some action-data pairs are valid; others are not. A model that doesn't know this distinction will confidently recommend underwriting changes from survey data, the way a junior analyst might. The fix is to name the taxonomy explicitly in the prompt and surface the audit field on the artefact.
+
+### What would break if we got it wrong
+
+Skip the field, keep just the prompt: the model gets better at flagging risky actions in the caveats, but the UI can't render a visible warning, and the consistency check (D-050) has no structured signal to reason about. The researcher might miss it.
+
+Don't cap the confidence: a "high confidence" recommendation with `requires_behavioral_validation: true` reads as "go ship this" — exactly the wrong signal. The cap is what turns "valuable hypothesis to test" into "valuable hypothesis to test, not a directive to ship."
+
+---
+
+## D-050 — Verdict-direction-check + action/caveat consistency-check (dogfood-driven)
+
+### The story
+
+Two failures, same shape. The ASEAN dogfood surfaced both in one analysis run:
+
+1. **H10** got a green `confirmed` badge for a hypothesis claiming *"Gen Z travellers outspend Gen Y travellers on overseas trips."* The supporting prose said the opposite: *"Millennial travellers report higher overseas trip spend than Gen Z travellers despite Gen Z showing comparable or higher trip frequency among those who do travel, consistent with the hypothesis."* The model wrote three contradictory things in one artefact — the hypothesis direction, the evidence direction, and the verdict label — and the chassis didn't notice.
+
+2. **H8** wrote *"Raw incidence data leans slightly toward Gen Z having a higher overseas travel rate"* and three sentences later *"approximately 43% of Gen Z respondents... vs. roughly 48% of Millennials — a direction that actually favours Millennials slightly."* 43 < 48, but the prose led with the wrong direction. The contradiction was internal to a single paragraph.
+
+3. A recommendation told CMOs to shift acquisition budgets to age-cohort targeting. Its own caveats noted that high share among low-spend Gen Z may translate to lower absolute merchant revenue. The action and the caveats did not reconcile.
+
+All three are inter-field contradictions. The strict-output chassis (D-010) enforces *that fields exist*, not *that they agree*. The citation-accuracy probe (D-042) enforces *that claims are supported by the corpus*, not *that they're internally consistent*. There was no layer checking inter-field agreement.
+
+### What we built
+
+New module [`src/lib/rag/consistency-checks.ts`](src/lib/rag/consistency-checks.ts) with two independent verifier passes:
+
+**`rectifyVerdicts`** runs after analysis generation. For each verdict, an independent Sonnet pass cross-checks the hypothesis statement + expected direction against the supporting-evidence prose direction and the verdict label, returning `{ match, recommended_verdict, explanation }`. When `match: false`, the verdict label is rewritten to the recommended label and a `[Direction check]` caveat is auto-appended explaining the rewrite. The correction is visible to the researcher — same instinct as D-038 / D-041 / D-049: schema-enforced honesty over silent correction.
+
+**`rectifyRecommendations`** runs after recommendation generation. For each recommendation, an independent Sonnet pass reads the action + caveats and returns `{ undermined, undermining_caveats, explanation }`. When undermined, confidence is auto-downgraded one step (high → medium → low → low) and a `[Consistency check]` caveat is auto-appended. We don't rewrite the action — that's a generator-level decision; we just calibrate honestly.
+
+Both wired into [`analysis-generator.ts`](src/lib/rag/analysis-generator.ts) and [`recommendation-generator.ts`](src/lib/rag/recommendation-generator.ts) after the primary tool_use response. Two new prompt-version entries (`verdict-direction-check`, `action-consistency-check`).
+
+Same pattern as D-042's citation-accuracy: an independent model with a stricter, narrower prompt cross-checks the primary generator. The primary pipeline stays Haiku/Sonnet-routed per the budget rules; the verifier is Sonnet because the input is small and the decision needs to be sharp.
+
+### What we considered
+
+- **Bake the direction check into the analysis system prompt.** Considered, but a self-check in the same call is unreliable — the model that wrote the contradiction is the same model asked to detect it. An independent pass with a narrower prompt catches more.
+- **Make the verdict mutable on the UI side, with a "flag mismatch" button for the researcher.** Wrong shape — researchers shouldn't have to audit every verdict for internal consistency; that's exactly the work the bot was hired to remove. Server-side correction with a visible caveat is the right load distribution.
+- **Use Haiku for the verdict check to save cost.** Tried in spirit: Haiku is right for the structural detection in D-049 (a fixed-shape reading task), but verdict direction is a semantic judgement that benefits from Sonnet's stronger comprehension. The call is cheap because the input is small.
+
+### The PM lesson
+
+**Schema-enforced fields agree only as much as the prompt enforces.** A required field in tool_use guarantees the field exists; it does not guarantee the field's value is consistent with the rest of the artefact. Inter-field consistency needs its own enforcement layer. The cleanest layer is an independent verifier — same pattern, second model — because the cost of running it (one extra small call per verdict) is much smaller than the cost of a researcher reading a confidently-mislabelled deck.
+
+**Auto-correction with visible caveats beats silent suppression.** When the verifier finds a contradiction, the artefact stays in the researcher's view — but the label is corrected and the correction is named. The researcher can override; they cannot miss it.
+
+### What would break if we got it wrong
+
+Skip the verifier and just tighten the prompt: a smarter prompt reduces the failure rate but doesn't drive it to zero. The same H10-shaped error will appear again with a different brief and a different corpus. A verifier layer is the structural answer to "the prompt isn't enough."
+
+Auto-correct without the visible caveat: the researcher sees a verdict that says `inconclusive` but doesn't know it was originally `confirmed` and got rewritten. They cannot judge whether to trust the rewrite. The caveat is what turns silent correction into accountable correction.
+
+Run the verifier on every claim in every artefact: cost balloons and the verifier becomes a parallel pipeline rather than a targeted check. The scoped form — direction-check on verdicts, consistency-check on recommendation actions — picks the specific failure shapes the dogfood surfaced and leaves cheaper checks (citation accuracy via D-042) to the parts of the system that already had them.
+
+---
+
+## D-049 — Scope is set by the brief, not the corpus (dogfood-driven)
+
+### The story
+
+A research director walks into a stakeholder kickoff. The brief on the table says *"test whether Gen Z are more avid travellers than Millennials."* The director takes the brief back to the agency floor. Their junior analyst goes off to pull historical context. The analyst comes back with a stack of recent ASEAN traveller studies — that's what their shelf happened to have — and writes up the hypotheses. By the time the questionnaire is being drafted, every hypothesis has "in ASEAN" baked into it. Nobody noticed the migration from a region-neutral brief to a region-locked study. The director's stakeholder is going to receive a *Southeast Asia travel study* in response to *a generational travel question*.
+
+Same failure mode, same room, played out inside Premise on 2026-05-18. Aaron's brief said exactly what the briefing-meeting one said: *Gen Z vs Millennial travel, no region named.* The hypothesis generator, faithfully grounding in his retrieved chunks (corpus skewed ASEAN-heavy from recent dogfood seeds + public-library composition), wrote hypotheses with "in ASEAN" embedded in the statement. Aaron accepted one without noticing the leak. The questionnaire inherited it. Three accept-gates later, Premise had silently turned a generational brief into a regional study.
+
+He named it the right way: *"this is a huge flaw especially if someone overlooks a detail like that."* The director-with-junior story is exactly the failure mode this catches.
+
+### What was actually broken
+
+The hypothesis generator was conflating two kinds of corpus-grounding:
+
+- **Evidence grounding** — claims should cite the corpus. This is the strict-abstention floor (CLAUDE.md non-negotiable #2). It's working.
+- **Scope grounding** — the *scope* of the hypothesis (geography, segments, time horizon, channels, market maturity) should be set by the brief itself, not by what the retrieved chunks happened to discuss.
+
+The prompt and tool schema only enforced the first. The model — reasonably but wrongly — was inheriting both *content* and *scope* from the chunks. Region-neutral brief + ASEAN-flavoured corpus = ASEAN-locked hypotheses.
+
+### What we built
+
+A two-layer fix: a clarifier surface at the front and a prompt-enforced rule at the back.
+
+**Layer 1 — Brief-scope clarifier (the front door).**
+
+New module [`src/lib/rag/scope-detector.ts`](src/lib/rag/scope-detector.ts) runs Haiku on the brief alone (no corpus) to detect which of five scope axes the brief explicitly specifies: `geography`, `time_horizon`, `audience`, `channel`, `market_maturity`. For each axis it returns `{ specified: bool, brief_mention: string | null }`.
+
+A companion module [`src/lib/rag/corpus-skew.ts`](src/lib/rag/corpus-skew.ts) samples the project's *own* documents (one chunk per doc, up to 30) and asks Haiku to report the dominant value + share for each axis. An axis only counts as "skewed" if the dominant value covers ≥60% of the sampled chunks. The public library is deliberately excluded from this check — the public library is assumed global-by-curation (see `PUBLIC_CORPUS_TASKFORCE.md`); if today's library is regionally skewed, that's a curation defect to fix on Premise's side, not a user-facing nudge.
+
+For any axis where the brief is silent AND the project's own corpus is skewed, the UI surfaces a clarifier card before generation can run. New routes:
+- `GET /api/briefs/[id]/scope` — returns current dimensions, persisted skew, clarifications, status, and the derived `nudge_axes` list.
+- `POST /api/briefs/[id]/scope/detect` — runs scope detection + skew detection, persists both on the brief, returns nudge axes.
+- `PATCH /api/briefs/[id]/scope` — saves the researcher's clarifier answers and flips status to `answered` / `skipped` / `not_required`.
+
+New component [`src/components/canvas/scope-clarifier.tsx`](src/components/canvas/scope-clarifier.tsx) lives between the Brief and Hypotheses artefacts. Each unresolved axis renders as a quick-reply card: 2-3 chips ([Keep global] / [Last 12 months] / [Match my corpus (ASEAN)]) + a free-text fallback + a "Skip — keep open" option. The "match my corpus" chip is the previous silent behaviour, now an explicit choice.
+
+The hypothesis-generation route refuses to run when `scope_clarifier_status = 'pending'`. The user has to resolve every nudged axis (or explicitly skip them) before Premise will produce hypotheses. This is the "propose, dispose" non-negotiable (CLAUDE.md #1) applied to scope inheritance — the disposition becomes visible.
+
+**Layer 2 — Scope-from-brief discipline in the prompt (the safety net).**
+
+Updated [`src/lib/prompts/hypothesis.ts`](src/lib/prompts/hypothesis.ts) with an explicit section on scope discipline:
+
+> The hypothesis statement's **scope** (geography, segments, time horizon, channels, market maturity) MUST come from the brief itself, or from the researcher's clarifications when supplied — NOT from whatever the retrieved chunks happen to talk about. Use corpus evidence to inform the *content* of the hypothesis, not its *scope*.
+
+Plus a new required field on the tool schema:
+```
+scope_inherited_from: "brief" | "clarifier" | "corpus" | "model_default"
+```
+The model must self-report where each hypothesis's scope came from. `brief` and `clarifier` are the two values where the researcher has consciously authorised the scope. `corpus` and `model_default` are honest disclosures of inheritance leaks — flagged on the card with an amber tag *"Scope: from corpus"* / *"Scope: model default"* and a tooltip telling the researcher to review the statement before accepting. Same audit-trail chassis as D-040's `selection_mode` and D-041's `revised_after_analysis`.
+
+Migration 0016 adds the new columns (`briefs.scope_dimensions`, `briefs.scope_corpus_skew`, `briefs.scope_clarifications`, `briefs.scope_clarifier_status`, `hypotheses.scope_inherited_from`) and redefines `replace_proposed_hypotheses` to persist the new field. `hypothesis-gen` bumped to `v3-2026-05-18`. New eval probe type `scope-discipline` with two fixtures (a region-neutral and a time-horizon-neutral brief) — region words must not leak into statements, and every draft must self-report `brief` or `clarifier` as its scope source.
+
+### What we considered
+
+- **Make every brief go through a forced clarification step.** Wrong — it'd turn the brief save into a four-question form. The taskforce explicitly named this trap (Sam — Conversational AI Designer): once you ask four upfront questions, you've turned an AI interaction into a form. The fix is *only* ask when (brief silent) AND (project corpus skewed). Bounded friction, high signal.
+- **Surface public-library skew as a clarifier nudge.** Aaron caught this in real time. The shared, curated public library should be assumed global-by-curation. If it's skewed, that's a curation defect, not a user-facing nudge. Surfacing it would teach researchers to distrust the shared corpus, which is the opposite of what D-033/D-044 intended. The clarifier compares brief scope only against project-owned corpus.
+- **Block scope inheritance silently in the prompt without an audit trail.** Tempting — just tell the model not to scope unless authorised. But honesty-on-the-artefact beats invisible enforcement: the `scope_inherited_from` field forces the model to disclose when it leaks anyway, and the amber tag lets the researcher catch what the prompt missed. Same instinct as D-038 / D-041 — schema-enforced honesty over hidden discipline.
+- **Persist the corpus skew on the project rather than the brief.** Skew is a property of "what the corpus said for this brief" — it depends on which chunks the retrieval surface returned. Storing it on the brief is the right scope. (And the brief is small; the jsonb adds negligible space.)
+- **Run scope detection on every brief save.** Wasteful — most brief saves are mid-draft edits, and Haiku-on-every-keystroke would burn budget. Detection runs lazily when the researcher initiates the scope check or clicks Generate.
+
+### The PM lesson
+
+**Distinguish kinds of inheritance.** When a system grounds output in a corpus, the corpus is doing several jobs at once — it's a fact source, a vocabulary source, a stylistic source, and a scope source. Conflating those is the bug. The fix is to name each kind of inheritance and put each on its own authority boundary: facts come from the corpus, scope comes from the brief, vocabulary follows the audience, style follows the prompt. The hypothesis generator failed not because grounding was wrong — grounding was working perfectly — but because it was doing *too many* jobs.
+
+**The director-with-junior story is the canonical user-empathy frame.** Every product flaw that survives review survived because *somebody overlooked it*. The right design question isn't "would a careful user catch this?" — it's "what happens when the user accepts the bot's output the same way they'd accept a junior's deliverable, with no time to audit every line?" That's not negligence; that's how real teams work. Build for the moment of trust, not the moment of audit. Scope discipline is the structural answer to *"I noticed it this time; I won't always."*
+
+**Honesty in the artefact beats hiddennes in the implementation.** The temptation when a model misbehaves is to tighten the prompt until the failure stops appearing. But silent fixes don't survive prompt drift, model upgrades, or unusual corpora. A schema-level audit field (`scope_inherited_from`, like `selection_mode` and `revised_after_analysis` before it) means *even when the discipline fails, the failure is visible*. That's the same compounding instinct as D-038's `omits` field — make the choice visible so the next reviewer doesn't have to re-derive it.
+
+### What would break if we got it wrong
+
+Skip Layer 1, ship only the prompt rule: the model gets better at avoiding leaks but the researcher never sees the corpus skew. Three months in, when the public-library composition shifts or the project corpus grows past the initial seed, the scope-leakage pattern returns silently — same bug, new corpus.
+
+Skip Layer 2, ship only the clarifier: any researcher who clicks "Skip — keep open" on every nudge gets the previous (broken) behaviour with no audit trail. The amber tag on the card is what makes "skip" survivable — researchers who weren't sure can review the leaked statements after generation.
+
+Apply the clarifier to public-library skew: every researcher who opts into the public library gets nudged about the library's regional composition. That's homework for the wrong person — the public library's regional balance is Premise's job to maintain, not the researcher's job to interrogate every project. Surfacing it once would erode the cold-start value the public library was designed to deliver (D-033).
+
+Surface the amber tag *without* the tooltip explaining what to do: researchers see a coloured chip and don't know whether it's a warning, an FYI, or a system error. The tooltip ("Scope inherited from corpus skew rather than the brief or your clarifications. Review the statement before accepting.") is what turns the visual signal into an actionable instruction.
+
+---
+
 ## D-048 — Optimistic accept/reject (D-8) — close the perceived-latency gap on the hot loop
 
 ### The story

@@ -16,6 +16,7 @@
     "seed-public-library": "tsx --env-file=.env.local scripts/seed-public-library.ts",
     "seed-public-corpus": "tsx --env-file=.env.local scripts/seed-public-corpus.ts",
     "audit-public-corpus": "tsx --env-file=.env.local scripts/audit-public-corpus.ts",
+    "audit-public-corpus-regions": "tsx --env-file=.env.local scripts/audit-public-corpus-regions.ts",
     "eval": "tsx --env-file=.env.local evals/cli.ts",
     "eval:setup": "tsx --env-file=.env.local evals/cli.ts --setup-only",
     "eval:reset": "tsx --env-file=.env.local evals/cli.ts --reset"

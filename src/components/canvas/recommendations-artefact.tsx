@@ -282,6 +282,14 @@ function RecommendationCard({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <ConfidenceBadge confidence={rec.confidence} />
+          {rec.requires_behavioral_validation && (
+            <span
+              className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100"
+              title="D-051: This action would normally require behavioural-data validation before deployment (underwriting / pricing / hard-operational / regulatory class). The recommended action is a hypothesis to test, not a directive to ship — confidence is capped at medium until behavioural data confirms the mechanism."
+            >
+              Validate against behavioural data
+            </span>
+          )}
           <button
             onClick={() => setExpanded((e) => !e)}
             className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:underline"

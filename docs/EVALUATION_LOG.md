@@ -350,3 +350,72 @@ Six of the deferred items above were closed in a single push driven by the audit
 | D-7 | Streaming responses | Architectural shift; touches every generation. Loading-stage hints (D-035) close the perceived-latency gap at much lower cost. |
 | R-5 | Skip logic / question ordering / screener | Whole product area (real questionnaire builder), not a closable audit item. |
 | E-5 | Model-regression A/B (Haiku 4.6 vs 4.7) | One-shot pattern per new model release; not a permanent CI gate. |
+
+
+---
+
+## Dogfood audit — ASEAN travel synthetic survey (2026-05-18)
+
+### Setup
+
+Aaron submitted the brief *"I want to test if Gen Z are more avid travellers compared to Millennials"* — region-neutral, time-neutral. Premise generated hypotheses, the researcher tweaked the questionnaire, then generated a 10,000-row simulated survey CSV (`Simulated_ASEAN_Travel_Research_10k.csv`, ~1.5 MB) that mirrored the proposed instrument. The CSV was uploaded as an analysis source and the pipeline was run end-to-end (hypotheses → personas → questions → analysis → recommendations → story angles).
+
+### Findings (pre-fix)
+
+Three classes of failure surfaced. All three drove D-049 through D-053 in the same session.
+
+#### Class 1 — Scope leakage from corpus into artefact (D-049)
+
+The brief specified no region. Premise generated hypotheses with "in ASEAN" baked into the statement, inherited from a corpus that happened to skew regional (recent dogfood seed + public-library composition). The researcher accepted one without noticing; the questionnaire propagated it. Three accept-gates and no signal.
+
+#### Class 2 — Inter-field contradictions in analysis + recommendation (D-050)
+
+- **H10** got verdict `confirmed` for a hypothesis claiming *"Gen Z travellers outspend Gen Y."* The prose said *"Millennial travellers report higher overseas trip spend than Gen Z travellers... consistent with the hypothesis."* The three components — hypothesis direction, evidence direction, verdict label — contradicted each other in a single artefact.
+- **H8** wrote *"Raw incidence data leans slightly toward Gen Z having a higher overseas travel rate"* and three sentences later *"43% of Gen Z respondents... vs. roughly 48% of Millennials — a direction that actually favours Millennials slightly."* 43 < 48; the prose directionality was internally inconsistent.
+- A recommendation told CMOs to shift acquisition budgets to age-cohort targeting. Its own caveats noted that high share among low-spend Gen Z may translate to lower absolute merchant revenue. Action and caveats did not reconcile.
+
+#### Class 3 — Action-class mismatch on recommendation (D-051)
+
+A recommendation told BNPL providers to introduce credit-limit caps within the current product cycle, based on stated-preference survey data. The action class (underwriting) cannot legitimately be authorised by the data class (self-report) without behavioural validation. The signal was real; the action was operationally naive.
+
+#### Class 4 — Story-angle audience precision (D-052)
+
+The "Travel Avidity Myth, Unpacked" story angle targeted *"Consumer insights leads and strategy directors at travel brands, tourism boards, and research agencies in ASEAN"* — a bundled audience. The angle's lede was a debunk of market expectation, which unlocks budget for methodology audiences (insights leads, research agencies) but threatens it for growth-stage buyers (tourism boards). By bundling, the angle inherited the commercial viability of its most reluctant buyer.
+
+#### Class 5 — CSV treated as text, not as query engine (D-053)
+
+The analyser noted across multiple verdicts that it was "only seeing ~528 rows" of the 10,000-row file. That's mechanical: `TOTAL_DATA_BUDGET_CHARS = 80_000` against a 1.5 MB CSV is ~5.3% of rows. Premise wasn't sandbagging; it was honestly reading the truncated extract and admitting it. But the framing wasn't there — the verdicts read as failures rather than as honest limitations of how Premise handles tabular data today.
+
+### Fixes shipped in response
+
+| Class | Fix | Decision entry |
+|---|---|---|
+| 1 | Brief-scope clarifier + scope-from-brief discipline + `scope_inherited_from` audit field + amber tag | D-049 |
+| 2 | Verdict-direction-check (analysis) + action/caveat consistency-check (recommendation), with auto-correction + visible caveat | D-050 |
+| 3 | Action-class constraint in recommendation prompt + `requires_behavioral_validation` field + UI amber chip + server-side confidence cap | D-051 |
+| 4 | Story-gen `target_audience` = one buyer + one job-to-be-done; lede-direction/audience-fit rule | D-052 |
+| 5 | CSV-framing notice in analysis prompt + inline user-message header + amber callout on the artefact | D-053 |
+
+### Next: re-run the same brief against the post-fix pipeline
+
+The expected deltas:
+- Hypotheses generated from the same region-neutral brief should not contain region words. `scope_inherited_from` should read `brief` or `clarifier` on every accepted hypothesis.
+- The same H10-shaped hypothesis, if it appears, should land with `verdict: inconclusive` and a `[Direction check]` caveat, OR with `confirmed` only when the prose actually supports the hypothesis direction.
+- The merchant-payments recommendation, if it appears, should either be re-articulated to land in the safe action class, OR carry `requires_behavioral_validation: true` with confidence capped at medium.
+- The "Travel Avidity Myth" angle, if it appears, should target a single buyer whose budget is unlocked by the correction (insights methodologist / research agency lead / regulator), not a bundled list including tourism boards.
+- Analysis run on the same CSV should produce verdicts that explicitly cite "the visible extract" and downgrade to `inconclusive` on claims that would require statistical testing.
+
+### New eval probe set (D-049)
+
+| Probe type | Count | Notes |
+|---|---|---|
+| **scope-discipline** | **2 (new)** | D-049 close; region-neutral and time-horizon-neutral fixtures. Asserts forbidden substrings don't leak into statements + every draft self-reports `brief` or `clarifier` as scope source. |
+
+### Deferred items remaining
+
+Unchanged from D-046: D-7 streaming, R-5 skip logic, E-5 model-regression. Original rationale holds.
+
+### Sequence for the next pass
+
+The audit-closing fixes (D-049 through D-053) are all live. Aaron's next step: apply migrations 0016 + 0017 to Supabase, re-run the same ASEAN brief end-to-end, and capture the before/after in this section. That's the dogfood loop closed.
+

@@ -1,7 +1,20 @@
 "use client";
 
+// D-054: New-project modal redesigned per the home-page taskforce.
+//
+// Three fields: name + brief + reference materials (3 options). Confidentiality
+// stays on a hidden default ("client-confidential") — the activation cost of
+// asking on every project is higher than the segmentation value at this stage.
+// Brief is optional at creation; researchers who paste a brief get it saved
+// immediately, those who don't write one later in the artefacts pane.
+//
+// Reference materials options:
+//   * public-only — Public library only (cold-start case)
+//   * own-only — Upload your own documents
+//   * own-plus-public — Project + public library
+
 import { useEffect, useState } from "react";
-import type { Confidentiality, Project } from "@/lib/rag/types";
+import type { Project } from "@/lib/rag/types";
 
 type Props = {
   open: boolean;
@@ -9,41 +22,42 @@ type Props = {
   onCreated: (project: Project) => void;
 };
 
-const CONFIDENTIALITY_OPTIONS: Array<{
-  value: Confidentiality;
+type CorpusOption = "own-only" | "own-plus-public" | "public-only";
+
+const CORPUS_OPTIONS: Array<{
+  value: CorpusOption;
   label: string;
   hint: string;
 }> = [
   {
-    value: "client-confidential",
-    label: "Client-confidential",
-    hint: "Default. NDA-typical client work.",
+    value: "own-only",
+    label: "Upload your own documents",
+    hint: "Your project's documents are the only grounding source. Best for confidential client work.",
   },
   {
-    value: "nda-restricted",
-    label: "NDA-restricted",
-    hint: "Strictest tier. For projects with explicit data-handling clauses.",
+    value: "own-plus-public",
+    label: "Upload your own + public library",
+    hint: "Your documents plus the shared public corpus. Best when you want context from both.",
   },
   {
-    value: "public",
-    label: "Public",
-    hint: "Internal benchmarks, syndicated reports, no confidentiality.",
+    value: "public-only",
+    label: "Public library only",
+    hint: "Start with just the public corpus — no upload required. Useful for exploration or first-runs.",
   },
 ];
 
 export function NewProjectModal({ open, onClose, onCreated }: Props) {
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [confidentiality, setConfidentiality] =
-    useState<Confidentiality>("client-confidential");
+  const [brief, setBrief] = useState("");
+  const [corpus, setCorpus] = useState<CorpusOption>("own-only");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setName("");
-      setDescription("");
-      setConfidentiality("client-confidential");
+      setBrief("");
+      setCorpus("own-only");
       setError(null);
     }
   }, [open]);
@@ -64,19 +78,48 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
     setCreating(true);
     setError(null);
     try {
+      // Step 1: create the project.
       const r = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          description: description.trim() || null,
-          confidentiality,
+          description: null,
+          confidentiality: "client-confidential",
         }),
       });
       const data = await r.json();
       if (!r.ok)
         throw new Error(data.error ?? `Create failed (${r.status})`);
-      onCreated(data.project as Project);
+      const project = data.project as Project;
+
+      // Step 2: apply the corpus choice. Default is `include_public_libraries=false`
+      // for new projects (D-047). We only PATCH when the user picked the
+      // public-inclusive option or the public-only option.
+      const includePublic = corpus !== "own-only";
+      if (includePublic) {
+        await fetch(`/api/projects/${project.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ include_public_libraries: true }),
+        });
+      }
+
+      // Step 3: if a brief was pasted, persist it now so the project lands
+      // on the canvas with a saved brief ready for scope-check.
+      if (brief.trim().length > 0) {
+        await fetch("/api/briefs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: project.id,
+            title: null,
+            content: brief.trim(),
+          }),
+        });
+      }
+
+      onCreated(project);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -89,7 +132,7 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
       <div
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-5 shadow-xl"
+        className="w-full max-w-lg rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-5 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wider">
@@ -106,7 +149,7 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
 
         <label className="block">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
-            Name
+            Project name
           </span>
           <input
             type="text"
@@ -120,33 +163,36 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
 
         <label className="mt-3 block">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
-            Description (optional)
+            Brief
+            <span className="ml-1 normal-case text-[10px] font-normal text-[var(--color-muted-foreground)]/70">
+              — paste now or save later
+            </span>
           </span>
           <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            placeholder="One-line summary of what this project is for."
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            rows={4}
+            placeholder="What decision will this research inform? What outcome would make this useful?"
             className="mt-1 w-full resize-y rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-[var(--color-foreground)]/10"
           />
         </label>
 
         <fieldset className="mt-3">
           <legend className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
-            Confidentiality
+            Reference materials
           </legend>
           <div className="mt-1 space-y-1">
-            {CONFIDENTIALITY_OPTIONS.map((opt) => (
+            {CORPUS_OPTIONS.map((opt) => (
               <label
                 key={opt.value}
                 className="flex cursor-pointer items-start gap-2 rounded-md border border-[var(--color-border)] px-3 py-2 text-xs hover:bg-[var(--color-muted)]"
               >
                 <input
                   type="radio"
-                  name="confidentiality"
+                  name="corpus"
                   value={opt.value}
-                  checked={confidentiality === opt.value}
-                  onChange={() => setConfidentiality(opt.value)}
+                  checked={corpus === opt.value}
+                  onChange={() => setCorpus(opt.value)}
                   className="mt-0.5"
                 />
                 <div>
@@ -181,7 +227,7 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
             disabled={creating || !name.trim()}
             className="rounded-md bg-[var(--color-foreground)] px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-[var(--color-background)] disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {creating ? "Creating…" : "Create project"}
+            {creating ? "Creating…" : "Create project →"}
           </button>
         </div>
       </div>

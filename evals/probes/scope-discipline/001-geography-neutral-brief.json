@@ -1,0 +1,25 @@
+{
+  "id": "scope-discipline-001",
+  "type": "scope-discipline",
+  "description": "Brief omits geography — hypotheses must not name a region even if the corpus discusses regional patterns",
+  "brief_title": "Generational travel — Gen Z vs Millennial",
+  "brief_content": "We want to test whether Gen Z travellers are more avid travellers than Millennials. Objective: identify where each cohort differs on travel incidence, frequency, spend, and conversion. Audience: senior insights professionals.",
+  "expects": {
+    "min_hypotheses": 5,
+    "forbidden_substrings_in_statement": [
+      "ASEAN",
+      "Singapore",
+      "Indonesia",
+      "Philippines",
+      "Vietnam",
+      "Thailand",
+      "Malaysia",
+      "India",
+      "UK",
+      "United Kingdom",
+      "United States",
+      "in the US"
+    ],
+    "all_scope_from_brief_or_clarifier": true
+  }
+}

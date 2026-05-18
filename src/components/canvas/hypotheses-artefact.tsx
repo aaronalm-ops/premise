@@ -379,6 +379,19 @@ function HypothesisCard({
               Revised post-analysis
             </span>
           )}
+          {(h.scope_inherited_from === "corpus" ||
+            h.scope_inherited_from === "model_default") && (
+            <span
+              className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100"
+              title={
+                h.scope_inherited_from === "corpus"
+                  ? "Scope inherited from corpus skew rather than the brief or your clarifications. Review the statement before accepting (D-049)."
+                  : "Scope not traceable to brief, clarifications, or corpus. The model defaulted. Review the statement before accepting (D-049)."
+              }
+            >
+              Scope: {h.scope_inherited_from === "corpus" ? "from corpus" : "model default"}
+            </span>
+          )}
           <button
             onClick={() => setExpanded((e) => !e)}
             className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:underline"

@@ -1,5 +1,11 @@
 import { getSupabaseServer } from "@/lib/db/supabase";
-import type { Brief } from "@/lib/rag/types";
+import type {
+  Brief,
+  CorpusSkew,
+  ScopeClarifications,
+  ScopeClarifierStatus,
+  ScopeDimensions,
+} from "@/lib/rag/types";
 
 export async function listBriefs(projectId: string): Promise<Brief[]> {
   const supabase = getSupabaseServer();
@@ -46,11 +52,23 @@ export async function updateBrief(input: {
   id: string;
   title?: string | null;
   content?: string;
+  scope_dimensions?: ScopeDimensions | null;
+  scope_corpus_skew?: CorpusSkew | null;
+  scope_clarifications?: ScopeClarifications | null;
+  scope_clarifier_status?: ScopeClarifierStatus | null;
 }): Promise<Brief> {
   const supabase = getSupabaseServer();
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.title !== undefined) patch.title = input.title;
   if (input.content !== undefined) patch.content = input.content;
+  if (input.scope_dimensions !== undefined)
+    patch.scope_dimensions = input.scope_dimensions;
+  if (input.scope_corpus_skew !== undefined)
+    patch.scope_corpus_skew = input.scope_corpus_skew;
+  if (input.scope_clarifications !== undefined)
+    patch.scope_clarifications = input.scope_clarifications;
+  if (input.scope_clarifier_status !== undefined)
+    patch.scope_clarifier_status = input.scope_clarifier_status;
 
   const { data, error } = await supabase
     .from("briefs")

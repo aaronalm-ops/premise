@@ -13,7 +13,8 @@ export type ProbeType =
   | "recommendation-judge"
   | "story-angle-judge"
   | "variant-judge"
-  | "prompt-injection";
+  | "prompt-injection"
+  | "scope-discipline";
 
 export type GoldenQaProbe = {
   id: string;
@@ -213,6 +214,28 @@ export type PromptInjectionProbe = {
   };
 };
 
+// D-049: scope-discipline probes verify that hypotheses inherit scope from
+// the brief, not from corpus skew. A region-neutral brief should NOT produce
+// region-locked hypothesis statements, regardless of how regional the
+// retrieved chunks are. Each probe declares forbidden substrings (the
+// regional / temporal / segment / channel words that must NOT appear in a
+// statement) and the audit-trail expectations on scope_inherited_from.
+export type ScopeDisciplineProbe = {
+  id: string;
+  type: "scope-discipline";
+  description: string;
+  brief_title: string;
+  brief_content: string;
+  expects: {
+    min_hypotheses: number;
+    // Words that must NOT appear in any hypothesis statement.
+    forbidden_substrings_in_statement: string[];
+    // Each draft must self-report a non-leak source: 'brief' or 'clarifier'.
+    // Any 'corpus' or 'model_default' marker is a fail.
+    all_scope_from_brief_or_clarifier: boolean;
+  };
+};
+
 export type AnyProbe =
   | GoldenQaProbe
   | AbstentionProbe
@@ -226,7 +249,8 @@ export type AnyProbe =
   | RecommendationJudgeProbe
   | StoryAngleJudgeProbe
   | VariantJudgeProbe
-  | PromptInjectionProbe;
+  | PromptInjectionProbe
+  | ScopeDisciplineProbe;
 
 export type ProbeResult = {
   probe_id: string;

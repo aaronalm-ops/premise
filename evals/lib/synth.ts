@@ -84,6 +84,7 @@ export function synthHypothesis(
     notes: null,
     revised_after_analysis: false,
     revision_rationale: null,
+    scope_inherited_from: "brief",
     created_at: NOW(),
     updated_at: NOW(),
   };
@@ -171,6 +172,7 @@ export function synthRecommendation(
     supporting_hypothesis_ids: hypothesisIds,
     supporting_emergent_patterns: [],
     caveats: r.caveats,
+    requires_behavioral_validation: false,
     status: "accepted",
     rejection_reason: null,
     created_at: NOW(),

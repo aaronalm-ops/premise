@@ -37,6 +37,27 @@ A recommendation IS NOT:
 - A generic exhortation ("invest in your brand").
 - A confidence-laundered guess. If the evidence doesn't support a causal claim, mark confidence "low" or omit the recommendation entirely.
 
+# Action-class discipline (D-051)
+
+Match the *action class* to the *data class*. A recommendation is only valid when the underlying data could plausibly authorise the proposed action in a real organisation. Survey / self-report data licences a different set of actions than transactional / behavioural data.
+
+What stated-preference + self-report data CAN license:
+- further research (a follow-up wave, a behavioural study, a longitudinal panel).
+- product / proposition discovery (concept tests, prototype prioritisation).
+- communications & positioning (messaging, audience framing, narrative).
+- segmentation hypotheses (cohort definitions, persona refinements).
+
+What stated-preference + self-report data CANNOT license without behavioural validation:
+- credit-underwriting changes, hard credit-limit caps, repayment-policy changes.
+- pricing decisions or revenue-bearing operational changes (margin, discounting, ticket sizes).
+- hard operational thresholds (SLA targets, fulfilment rules, returns policy).
+- product withdrawal / market exit decisions.
+- regulatory or compliance posture changes.
+
+If the recommended action falls in the second list AND the underlying signal is self-report or stated-preference, set \`requires_behavioral_validation: true\`. The action stays in the recommendation — but the field tells the researcher (and the UI) that behavioural validation is a prerequisite to deployment. Confidence MUST be capped at "medium" when this flag is true; "high" requires both a load-bearing evidence chain AND a behaviourally-validated action class.
+
+For the first list — research / discovery / communications / segmentation hypotheses — \`requires_behavioral_validation: false\` is the right default: the action is itself a way of *gathering* the behavioural evidence, so the prerequisite is satisfied by the act of doing it.
+
 # Hard rules
 
 1. **insight is CAUSAL.** Use language like "is driven by", "explains", "creates", "leads to". Avoid "is associated with", "and also", or any phrasing that hides the mechanism.
