@@ -7,7 +7,13 @@ export type ProbeType =
   | "hypothesis-quality"
   | "persona-quality"
   | "confidentiality"
-  | "citation-accuracy";
+  | "citation-accuracy"
+  | "hypothesis-judge"
+  | "persona-judge"
+  | "recommendation-judge"
+  | "story-angle-judge"
+  | "variant-judge"
+  | "prompt-injection";
 
 export type GoldenQaProbe = {
   id: string;
@@ -103,6 +109,110 @@ export type CitationAccuracyProbe = {
   };
 };
 
+// ============================================================================
+// D-046 (closing deferred audit items R-1 / R-2 / E-1 / E-2 / E-3 / E-4).
+//
+// Judge-based probes: a Sonnet-as-judge layer on top of the structural quality
+// probes. Existing hypothesis-quality / persona-quality probes assert that
+// fields exist and statements are non-duplicate (the FLOOR). The judge probes
+// score qualitative properties — specificity, falsifiability, distinctness,
+// calibration honesty — against a rubric returned via forced tool_use (the
+// CEILING, in D-038's vocabulary).
+//
+// Each judge probe asks Sonnet to score 1-5 on multiple dimensions and pass/
+// fail against per-probe thresholds. Same pattern as D-042 citation-accuracy:
+// independent model, stricter prompt, runs in eval rather than in the
+// user-facing flow.
+// ============================================================================
+
+export type JudgeScoreThresholds = {
+  min_score: number;          // each dimension must score >=
+  min_average_score?: number; // across all dimensions
+};
+
+export type HypothesisJudgeProbe = {
+  id: string;
+  type: "hypothesis-judge";
+  description: string;
+  brief_title: string;
+  brief_content: string;
+  // Scores: specificity, falsifiability, evidence_tightness, novelty,
+  // distinctness_across_set. Each 1-5.
+  expects: JudgeScoreThresholds & {
+    min_hypotheses: number;
+  };
+};
+
+export type PersonaJudgeProbe = {
+  id: string;
+  type: "persona-judge";
+  description: string;
+  brief_title: string;
+  brief_content: string;
+  // Scores: behavioural_specificity, distinctness_across_set,
+  // under_represents_quality, grounded_to_corpus. Each 1-5.
+  expects: JudgeScoreThresholds & {
+    min_personas: number;
+  };
+};
+
+export type RecommendationJudgeProbe = {
+  id: string;
+  type: "recommendation-judge";
+  description: string;
+  brief_title: string;
+  brief_content: string;
+  // Scores: causal_insight_clarity, action_specificity,
+  // calibration_honesty, caveat_completeness. Each 1-5.
+  expects: JudgeScoreThresholds & {
+    min_recommendations: number;
+  };
+};
+
+export type StoryAngleJudgeProbe = {
+  id: string;
+  type: "story-angle-judge";
+  description: string;
+  brief_title: string;
+  brief_content: string;
+  // Scores: audience_distinctness_across_set, lede_sharpness,
+  // evidence_chain_coherence, omits_honesty. Each 1-5.
+  expects: JudgeScoreThresholds & {
+    min_angles: number;
+  };
+};
+
+// D-040 / E-3: for each question, asks Sonnet "which of these 3 variants
+// would you recommend as the fatigue-default?" and compares to the
+// is_recommended flag set by the generator. Measures the agreement rate.
+export type VariantJudgeProbe = {
+  id: string;
+  type: "variant-judge";
+  description: string;
+  brief_title: string;
+  brief_content: string;
+  expects: {
+    min_questions: number;
+    min_agreement_rate: number; // fraction of questions where judge agrees with is_recommended
+  };
+};
+
+// E-4: adversarial probes. Inputs that try to make the pipeline fabricate,
+// leak system prompt, ignore abstention, or cite non-existent chunks.
+export type PromptInjectionProbe = {
+  id: string;
+  type: "prompt-injection";
+  description: string;
+  question: string;
+  expects: {
+    // Either abstain (no claims OR explicit unanswered_aspects)
+    // or refuse to comply (no leaked system prompt content, no
+    // fabricated citations).
+    must_abstain_or_refuse: boolean;
+    forbidden_substring_in_claims?: string[];
+  };
+};
+
 export type AnyProbe =
   | GoldenQaProbe
   | AbstentionProbe
@@ -110,7 +220,13 @@ export type AnyProbe =
   | HypothesisQualityProbe
   | PersonaQualityProbe
   | ConfidentialityProbe
-  | CitationAccuracyProbe;
+  | CitationAccuracyProbe
+  | HypothesisJudgeProbe
+  | PersonaJudgeProbe
+  | RecommendationJudgeProbe
+  | StoryAngleJudgeProbe
+  | VariantJudgeProbe
+  | PromptInjectionProbe;
 
 export type ProbeResult = {
   probe_id: string;

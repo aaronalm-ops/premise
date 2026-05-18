@@ -14,9 +14,18 @@ type Props = {
   onChange: () => void;
 };
 
+// D-048 (closes D-8): optimistic-update override map. Cards call
+// applyOptimistic(id, patch) before kicking off the PATCH; the card moves
+// buckets immediately. Once the parent refresh completes, the server state
+// supersedes the override.
+type OptimisticOverride = Partial<Pick<Hypothesis, "status">>;
+
 export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<
+    Record<string, OptimisticOverride>
+  >({});
   // D-041: tracks whether an analysis exists on this brief — gates the
   // post-analysis-revision rationale prompt on accepted hypotheses.
   const [hasAnalysis, setHasAnalysis] = useState(false);
@@ -84,10 +93,27 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
     onChange();
   };
 
+  const effective = hypotheses.map((h) => ({ ...h, ...(overrides[h.id] ?? {}) }));
   const buckets = {
-    proposed: hypotheses.filter((h) => h.status === "proposed"),
-    accepted: hypotheses.filter((h) => h.status === "accepted"),
-    rejected: hypotheses.filter((h) => h.status === "rejected"),
+    proposed: effective.filter((h) => h.status === "proposed"),
+    accepted: effective.filter((h) => h.status === "accepted"),
+    rejected: effective.filter((h) => h.status === "rejected"),
+  };
+
+  const applyOptimistic = (id: string, patch: OptimisticOverride) => {
+    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  };
+  const clearOptimistic = (id: string) => {
+    setOverrides((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+  const refreshAndClear = (id: string) => {
+    onChange();
+    clearOptimistic(id);
   };
 
   return (
@@ -161,6 +187,8 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
                 h={h}
                 hasAnalysis={hasAnalysis}
                 onChange={onChange}
+                onOptimistic={applyOptimistic}
+                onSettled={refreshAndClear}
               />
             ))}
           </Section>
@@ -174,6 +202,8 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
                 h={h}
                 hasAnalysis={hasAnalysis}
                 onChange={onChange}
+                onOptimistic={applyOptimistic}
+                onSettled={refreshAndClear}
               />
             ))}
           </Section>
@@ -187,6 +217,8 @@ export function HypothesesArtefact({ brief, hypotheses, onChange }: Props) {
                 h={h}
                 hasAnalysis={hasAnalysis}
                 onChange={onChange}
+                onOptimistic={applyOptimistic}
+                onSettled={refreshAndClear}
               />
             ))}
           </Section>
@@ -221,10 +253,14 @@ function HypothesisCard({
   h,
   hasAnalysis,
   onChange,
+  onOptimistic,
+  onSettled,
 }: {
   h: Hypothesis;
   hasAnalysis: boolean;
   onChange: () => void;
+  onOptimistic: (id: string, patch: OptimisticOverride) => void;
+  onSettled: (id: string) => void;
 }) {
   const [busy, setBusy] = useState<HypothesisStatus | "save" | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -252,13 +288,15 @@ function HypothesisCard({
       rejection_reason = null;
     }
     setBusy(status);
+    // D-048: optimistic move into the destination bucket immediately.
+    onOptimistic(h.id, { status });
     try {
       const r = await fetch(`/api/hypotheses/${h.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, rejection_reason }),
       });
-      if (r.ok) onChange();
+      if (r.ok) onSettled(h.id);
     } finally {
       setBusy(null);
     }

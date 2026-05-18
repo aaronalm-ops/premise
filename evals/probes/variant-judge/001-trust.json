@@ -1,0 +1,35 @@
+{
+  "id": "variant-judge-001",
+  "type": "variant-judge",
+  "description": "Independent Sonnet judge agreement rate vs generator's is_recommended flag (E-3 / D-046)",
+  "brief_title": "Brand trust drivers across urban Indian categories",
+  "brief_content": "We are designing the 2026 brand trust syndicated study refresh. Objective: identify the dominant brand trust drivers across urban Indian categories, segment consumers by their trust profile, and map the differences in trust drivers across age cohorts. Audience: brand strategy and marketing teams across personal care, packaged foods, and small appliances.",
+  "context": {
+    "accepted_hypotheses": [
+      {
+        "statement": "Among urban Gen-Z consumers, ingredient transparency on personal-care SKUs predicts purchase intent more strongly than brand heritage.",
+        "expected_direction": "Gen-Z respondents will rank ingredient lists above brand heritage when ranking trust drivers.",
+        "confirmation_criteria": "Maxdiff on trust drivers shows ingredient transparency in top-2 for Gen-Z but outside top-5 for Gen-X.",
+        "priority": 5
+      },
+      {
+        "statement": "Trust drivers in small appliances are dominated by warranty length and after-sales service, with brand-level affinity playing a minor role.",
+        "expected_direction": "Conjoint utilities for warranty and service exceed brand-level utility in small appliances.",
+        "confirmation_criteria": "Choice-based conjoint shows warranty + service utilities >2× brand utility.",
+        "priority": 4
+      }
+    ],
+    "accepted_personas": [
+      {
+        "name": "Gen-Z Label Scanner",
+        "description": "21-year-old Bangalore software engineer who scans ingredient lists on every personal-care purchase.",
+        "under_represents": "Older urban Indian consumers, rural shoppers, men, lower-income households",
+        "priority": 5
+      }
+    ]
+  },
+  "expects": {
+    "min_questions": 4,
+    "min_agreement_rate": 0.5
+  }
+}

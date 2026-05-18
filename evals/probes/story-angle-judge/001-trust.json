@@ -1,0 +1,72 @@
+{
+  "id": "story-angle-judge-001",
+  "type": "story-angle-judge",
+  "description": "Sonnet rubric over story angles generated from the trust-drivers brief (E-1 / D-046)",
+  "brief_title": "Brand trust drivers across urban Indian categories",
+  "brief_content": "We are designing the 2026 brand trust syndicated study refresh. Objective: identify the dominant brand trust drivers across urban Indian categories, segment consumers by their trust profile, and map the differences in trust drivers across age cohorts. Audience: brand strategy and marketing teams across personal care, packaged foods, and small appliances.",
+  "context": {
+    "accepted_hypotheses": [
+      {
+        "statement": "Among urban Gen-Z consumers, ingredient transparency on personal-care SKUs predicts purchase intent more strongly than brand heritage.",
+        "expected_direction": "Gen-Z respondents will rank ingredient lists above brand heritage when ranking trust drivers.",
+        "confirmation_criteria": "Maxdiff on trust drivers shows ingredient transparency in top-2 for Gen-Z but outside top-5 for Gen-X.",
+        "priority": 5
+      },
+      {
+        "statement": "Trust drivers in small appliances are dominated by warranty length and after-sales service, with brand-level affinity playing a minor role.",
+        "expected_direction": "Conjoint utilities for warranty and service exceed brand-level utility in small appliances.",
+        "confirmation_criteria": "Choice-based conjoint shows warranty + service utilities >2× brand utility.",
+        "priority": 4
+      }
+    ],
+    "accepted_personas": [
+      {
+        "name": "Gen-Z Label Scanner",
+        "description": "21-year-old Bangalore software engineer who scans ingredient lists on every personal-care purchase.",
+        "under_represents": "Older urban Indian consumers, rural shoppers, men, lower-income households",
+        "priority": 5
+      }
+    ],
+    "analysis": {
+      "hypothesis_verdicts": [
+        {
+          "hypothesis_index": 0,
+          "verdict": "confirmed",
+          "confidence": "high",
+          "summary": "Gen-Z maxdiff ranked ingredient transparency #1; Gen-X ranked it #6."
+        },
+        {
+          "hypothesis_index": 1,
+          "verdict": "confirmed",
+          "confidence": "high",
+          "summary": "Conjoint warranty utility 2.4× brand utility."
+        }
+      ],
+      "emergent_patterns": [
+        {
+          "pattern": "Gen-Z treats certifications as table-stakes, not differentiators",
+          "description": "Gen-Z respondents flagged certifications as 'expected', not as positive signals.",
+          "why_interesting": "The trust-shortcut value of certifications is eroding fastest in the youngest cohort.",
+          "priority": 5
+        }
+      ],
+      "caveats": [
+        "Sample skewed urban metros only — no tier-2/3 representation."
+      ]
+    },
+    "accepted_recommendation": {
+      "insight": "In personal care, ingredient transparency has replaced brand heritage as the dominant Gen-Z trust shortcut, while certifications have collapsed into table-stakes.",
+      "recommended_action": "Redesign personal-care packaging to lead with full ingredient disclosure and active-ingredient call-outs ahead of brand mark by Q3 2026.",
+      "confidence": "high",
+      "caveats": [
+        "Urban-metros only — tier-2/3 buying behaviour not yet observed.",
+        "Personal-care category-specific — does not apply to packaged foods or appliances."
+      ]
+    }
+  },
+  "expects": {
+    "min_angles": 2,
+    "min_score": 3,
+    "min_average_score": 3.5
+  }
+}

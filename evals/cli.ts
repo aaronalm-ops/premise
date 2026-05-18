@@ -17,6 +17,12 @@ import { runHypothesisQuality } from "./runners/hypothesis-quality";
 import { runPersonaQuality } from "./runners/persona-quality";
 import { runConfidentiality } from "./runners/confidentiality";
 import { runCitationAccuracy } from "./runners/citation-accuracy";
+import { runHypothesisJudge } from "./runners/hypothesis-judge";
+import { runPersonaJudge } from "./runners/persona-judge";
+import { runRecommendationJudge } from "./runners/recommendation-judge";
+import { runStoryAngleJudge } from "./runners/story-angle-judge";
+import { runVariantJudge } from "./runners/variant-judge";
+import { runPromptInjection } from "./runners/prompt-injection";
 import type { ProbeResult, ProbeType } from "./lib/types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +36,12 @@ const ALL_TYPES: ProbeType[] = [
   "persona-quality",
   "confidentiality",
   "citation-accuracy",
+  "hypothesis-judge",
+  "persona-judge",
+  "recommendation-judge",
+  "story-angle-judge",
+  "variant-judge",
+  "prompt-injection",
 ];
 
 function parseArgs(argv: string[]): {
@@ -99,6 +111,24 @@ async function main() {
         break;
       case "citation-accuracy":
         typeResults = await runCitationAccuracy(config.project_a_id);
+        break;
+      case "hypothesis-judge":
+        typeResults = await runHypothesisJudge(config.project_a_id);
+        break;
+      case "persona-judge":
+        typeResults = await runPersonaJudge(config.project_a_id);
+        break;
+      case "recommendation-judge":
+        typeResults = await runRecommendationJudge(config.project_a_id);
+        break;
+      case "story-angle-judge":
+        typeResults = await runStoryAngleJudge(config.project_a_id);
+        break;
+      case "variant-judge":
+        typeResults = await runVariantJudge(config.project_a_id);
+        break;
+      case "prompt-injection":
+        typeResults = await runPromptInjection(config.project_a_id);
         break;
     }
     for (const r of typeResults) {

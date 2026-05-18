@@ -1,0 +1,12 @@
+{
+  "id": "persona-judge-001",
+  "type": "persona-judge",
+  "description": "Sonnet rubric over personas generated from the trust-drivers brief (R-2 / D-046)",
+  "brief_title": "Brand trust drivers across urban Indian categories",
+  "brief_content": "We are designing the 2026 brand trust syndicated study refresh. Objective: identify the dominant brand trust drivers across urban Indian categories, segment consumers by their trust profile, and map the differences in trust drivers across age cohorts (Gen-Z, Millennials, Gen-X). Audience: brand strategy and marketing teams across personal care, packaged foods, and small appliances.",
+  "expects": {
+    "min_personas": 3,
+    "min_score": 3,
+    "min_average_score": 3.5
+  }
+}

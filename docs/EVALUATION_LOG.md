@@ -312,3 +312,41 @@ The five fixtures reuse the existing golden-qa corpus questions; the *expectatio
 | E-5 | No model-regression A/B (Haiku 4.6 vs 4.7) | Anthropic doesn't ship that often; do it once per new model, not as a permanent CI gate (taskforce 8d) |
 
 These are flagged here so the next eval audit can decide whether to address them.
+
+---
+
+## Deferred-items close-out (2026-05-15) — D-046
+
+Six of the deferred items above were closed in a single push driven by the audit-honesty re-read in D-046. The remaining deferrals (D-7 streaming, R-5 skip logic, E-5 model-regression) hold their original rationale.
+
+### Probe-set total after D-046
+
+| Probe type | Count | Notes |
+|---|---|---|
+| golden-qa | 5 | unchanged |
+| abstention | (existing) | unchanged |
+| hallucination | (existing) | unchanged |
+| hypothesis-quality | 2 | structural (the floor) |
+| persona-quality | 2 | structural (the floor) |
+| confidentiality | (existing) | unchanged |
+| citation-accuracy | 5 | D-042 |
+| **hypothesis-judge** | **2 (new)** | R-1 close; Sonnet rubric (specificity / falsifiability / evidence_tightness / novelty / distinctness_across_set) |
+| **persona-judge** | **1 (new)** | R-2 close; rubric (behavioural_specificity / distinctness / under_represents_quality / grounded_to_corpus) |
+| **recommendation-judge** | **1 (new)** | E-2 close; rubric (causal_insight_clarity / action_specificity / calibration_honesty / caveat_completeness). Uses `synth.ts` to cast frozen upstream context into typed inputs. |
+| **story-angle-judge** | **1 (new)** | E-1 close; rubric (audience_distinctness_across_set / lede_sharpness / evidence_chain_coherence / omits_honesty) |
+| **variant-judge** | **1 (new)** | E-3 close; independent Sonnet picks the fatigue-default per question; measures agreement rate vs `is_recommended` |
+| **prompt-injection** | **3 (new)** | E-4 close; adversarial inputs (ignore-prior / fake chunk ID / system-prompt leak); must abstain or refuse |
+
+### Baseline expectation per new probe type
+
+- All four quality-judge types use `min_score: 3` and `min_average_score: 3.5` on a 1-5 rubric. That sets the regression bar where it should be — a generic, vague output scores ≤3; a specific, evidence-grounded output scores ≥4. The pass/fail boundary is "not embarrassing."
+- `variant-judge` uses `min_agreement_rate: 0.5` for the first baseline run. Methodology choice (neutral_direct vs behavioural vs forced_choice) is taste-driven enough that 100% agreement isn't the goal; we want to detect drift, not enforce one judge's taste.
+- `prompt-injection` is binary: claims must abstain OR cite only real chunks AND avoid forbidden substrings.
+
+### Deferred items remaining (rationale honoured)
+
+| # | Item | Reason still holds |
+|---|---|---|
+| D-7 | Streaming responses | Architectural shift; touches every generation. Loading-stage hints (D-035) close the perceived-latency gap at much lower cost. |
+| R-5 | Skip logic / question ordering / screener | Whole product area (real questionnaire builder), not a closable audit item. |
+| E-5 | Model-regression A/B (Haiku 4.6 vs 4.7) | One-shot pattern per new model release; not a permanent CI gate. |

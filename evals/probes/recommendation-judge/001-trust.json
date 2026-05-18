@@ -1,0 +1,86 @@
+{
+  "id": "recommendation-judge-001",
+  "type": "recommendation-judge",
+  "description": "Sonnet rubric over a recommendation generated from a trust-drivers brief with mixed-verdict analysis (E-2 / D-046)",
+  "brief_title": "Brand trust drivers across urban Indian categories",
+  "brief_content": "We are designing the 2026 brand trust syndicated study refresh. Objective: identify the dominant brand trust drivers across urban Indian categories, segment consumers by their trust profile, and map the differences in trust drivers across age cohorts. Audience: brand strategy and marketing teams across personal care, packaged foods, and small appliances.",
+  "context": {
+    "accepted_hypotheses": [
+      {
+        "statement": "Among urban Gen-Z consumers, ingredient transparency on personal-care SKUs predicts purchase intent more strongly than brand heritage.",
+        "expected_direction": "Gen-Z respondents will rank ingredient lists above brand heritage when ranking trust drivers.",
+        "confirmation_criteria": "Maxdiff on trust drivers shows ingredient transparency in top-2 for Gen-Z but outside top-5 for Gen-X.",
+        "priority": 5
+      },
+      {
+        "statement": "Millennials over-index on third-party certification badges (organic, FSSAI) as a trust shortcut in packaged foods.",
+        "expected_direction": "Millennials cite certifications unprompted in the trust elicitation more frequently than Gen-X or Gen-Z.",
+        "confirmation_criteria": "Open-end coding shows ≥40% Millennial certification mentions vs ≤20% for adjacent cohorts.",
+        "priority": 4
+      },
+      {
+        "statement": "Trust drivers in small appliances are dominated by warranty length and after-sales service, with brand-level affinity playing a minor role.",
+        "expected_direction": "Conjoint utilities for warranty and service exceed brand-level utility in small appliances.",
+        "confirmation_criteria": "Choice-based conjoint shows warranty + service utilities >2× brand utility.",
+        "priority": 4
+      }
+    ],
+    "accepted_personas": [
+      {
+        "name": "Gen-Z Label Scanner",
+        "description": "21-year-old Bangalore software engineer who scans ingredient lists on every personal-care purchase.",
+        "demographic_profile": "21, female, SEC A2, Bangalore, single income",
+        "behavioural_profile": "Scans ingredient lists in-store before purchase; cross-references with Instagram dermatology accounts; switches brands every 3-6 months.",
+        "under_represents": "Older urban Indian consumers, rural shoppers, men, lower-income households",
+        "priority": 5
+      },
+      {
+        "name": "Certificate-Seeking Mum",
+        "description": "34-year-old Mumbai mother who relies on certifications as a trust shortcut for family groceries.",
+        "demographic_profile": "34, female, SEC A1, Mumbai, dual income, two children",
+        "behavioural_profile": "Scans for FSSAI / organic certifications; trusts hospital-recommended brands; weekly grocery run is decision-heavy.",
+        "under_represents": "Gen-Z first-time buyers, single-person households, men",
+        "priority": 4
+      }
+    ],
+    "analysis": {
+      "hypothesis_verdicts": [
+        {
+          "hypothesis_index": 0,
+          "verdict": "confirmed",
+          "confidence": "high",
+          "summary": "Gen-Z maxdiff ranked ingredient transparency #1; Gen-X ranked it #6."
+        },
+        {
+          "hypothesis_index": 1,
+          "verdict": "inconclusive",
+          "confidence": "medium",
+          "summary": "Millennials cited certifications more than Gen-X but not significantly more than Gen-Z (35% vs 28%)."
+        },
+        {
+          "hypothesis_index": 2,
+          "verdict": "confirmed",
+          "confidence": "high",
+          "summary": "Conjoint warranty utility 2.4× brand utility; service utility 2.1× brand utility."
+        }
+      ],
+      "emergent_patterns": [
+        {
+          "pattern": "Gen-Z treats certifications as table-stakes, not differentiators",
+          "description": "Gen-Z respondents flagged certifications as 'expected', not as positive signals — a reversal from the Millennial pattern.",
+          "why_interesting": "Implies the trust-shortcut value of certifications is eroding fastest in the youngest cohort.",
+          "priority": 5
+        }
+      ],
+      "caveats": [
+        "Sample skewed urban metros only — no tier-2/3 representation.",
+        "Personal-care sample over-represents women (68%); male grooming trust drivers under-covered."
+      ]
+    }
+  },
+  "expects": {
+    "min_recommendations": 1,
+    "min_score": 3,
+    "min_average_score": 3.5
+  }
+}

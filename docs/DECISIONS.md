@@ -1398,6 +1398,161 @@ Two taskforce-driven tightenings of the same prompt (see `docs/TASKFORCE_CRITIQU
 
 ---
 
+## D-048 — Optimistic accept/reject (D-8) — close the perceived-latency gap on the hot loop
+
+### The story
+
+In real fieldwork, decisions feel best when they're *immediate*. The moderator marks a respondent in-or-out and the field-team CAPI device flips the row visibly that instant. Premise's hypothesis / persona / variant cards weren't quite like that: click **Accept**, wait for a round-trip to PATCH the API, wait for a re-fetch of the list, then watch the card move buckets. <300ms in practice (which is why D-035 had deliberately deferred D-8 — "real value < real cost"). But Aaron's instruction this round was specifically *close the deferred items*, and when you're using the product back-to-back-to-back on a real wave, that 200-300ms compound feels heavier than the latency budget suggests.
+
+So we closed D-8 — but only as much as actually mattered.
+
+### What we built
+
+Parent-level optimistic-override pattern in [`HypothesesArtefact`](src/components/canvas/hypotheses-artefact.tsx). The card calls `applyOptimistic(id, { status })` *before* firing the PATCH; the parent merges the override into its derived `effective` list; bucketing recomputes; the card moves to the destination column on the next render frame. On settlement the parent calls `onChange()` (server refresh) and clears the override. If the PATCH fails, `setBusy(null)` runs but the override is never cleared by `onSettled` — the next interaction or refresh resyncs from the server.
+
+The pattern is small and contained:
+
+```ts
+const [overrides, setOverrides] = useState<Record<string, Partial<Hypothesis>>>({});
+const effective = hypotheses.map(h => ({ ...h, ...(overrides[h.id] ?? {}) }));
+const applyOptimistic = (id, patch) => setOverrides(p => ({ ...p, [id]: { ...p[id], ...patch } }));
+```
+
+Three reasons to do it this way rather than a global state-manager refactor:
+1. **Override > controlled state.** The server stays the source of truth; the override is a frame-local lens.
+2. **No retry logic, no rollback ceremony.** If the API fails (rare), the next refresh pulls truth back. We don't try to handle every edge case — we make the happy path feel instant.
+3. **Same pattern applies to personas + recommendation cards** when those flows show measurable latency too. We left them unchanged in this push: their accept/reject volume is much lower (one persona accept at the start of a session vs. five hypothesis accepts after each regeneration), so the lag tax is proportionally smaller.
+
+### What we considered
+
+- **Streaming PATCH responses with intermediate states.** Total overkill for a status flip; would need a server-sent-events channel for a 200ms perceived-savings.
+- **A global Redux/Zustand store for artefact state.** Architectural cost of a state manager for a UX gain measured in hundreds of milliseconds. Aaron's CLAUDE.md non-negotiable #6 — no LangChain, no agent frameworks — generalises to "no architecture for problems a `useState` already solves."
+- **Skip D-8 entirely on the deferred-list close.** The original D-035 rationale ("flows are <300ms; real value < real cost") still holds for personas and recommendation cards, where accept-volume is low. For hypotheses, where the user accepts 3-5 cards in a single session right after generation, the close was worth doing.
+
+### The PM lesson
+
+**Deferral rationales are time-bound, not permanent.** D-035 was right when it was written: the perceived-latency cost wasn't worth a refactor. Six audit items later, with the rest of the deferred queue being addressed, the proportional cost dropped. The right move was to revisit the deferral, not honour it forever. Audit a deferred-items list periodically; some entries graduate from "deferred for now" to "worth doing".
+
+**Optimistic UI is a layer, not a rewrite.** The temptation when adding optimistic updates is to refactor everything through a state manager. The minimum that actually delivers the felt improvement is a per-card override map that *adds* a render lens on top of the server-truth prop — without taking ownership of the data itself.
+
+### What would break if we got it wrong
+
+Make every card hold its own optimistic state in isolation: the bucket-level rendering doesn't see the change, so the card "stays" in proposed while internally claiming accepted — exactly the visual stutter we were trying to avoid. The fix has to live at the parent that owns the bucketing.
+
+Forget to clear the override after `onChange()`: the override sticks around forever, stale, masking server-truth on subsequent edits. The `refreshAndClear` helper exists specifically to keep these in lockstep.
+
+Try to do this for all four artefact types in one push: scope creep on a low-leverage UX improvement. Establishing the pattern on hypotheses (highest accept-volume) is enough for now; personas and recommendation cards adopt it the same way when their accept-volume warrants it.
+
+---
+
+## D-047 — Public library is read-only and opt-in per project (taskforce-driven)
+
+### The story
+
+After the first 66-document public-corpus seed (D-044) and the commercial-safety guardrail (D-045), Aaron opened the public-library project in the canvas and saw a UI that had two problems:
+
+1. **Every public-library document had a DELETE button next to it.** From inside the public-library project, a single accidental click would have removed a shared document for every researcher who depended on it.
+2. **The PublicLibrariesSection at the top of every project's corpus pane silently auto-included all public-library docs in retrieval.** Researchers couldn't tell whether a cited chunk was from *their* corpus or from the shared library, and there was no toggle to turn the shared library off for confidential client work.
+
+Both are the same shape of mistake: confusing "shared resource" with "user-owned resource." The fix is the same shape too: name the boundary clearly, then enforce it at every layer the boundary crosses.
+
+### What we built
+
+**Schema-level boundary** (migration 0015). New column on `projects`: `include_public_libraries boolean default false`. Existing projects backfill to `true` so the May 2026 deploy doesn't change behaviour for in-progress work; new projects start at `false` (explicit opt-in). The same migration-time backfill pattern as D-037 — a default change behind a backfill so the cutover is invisible to existing users.
+
+**Retrieval-time enforcement** ([`src/lib/rag/retrieval.ts`](src/lib/rag/retrieval.ts)). The retrieve function now reads `project.include_public_libraries` and short-circuits `getPublicLibraryIds()` when the flag is off. Same SQL-boundary pattern as D-016 (confidentiality) and D-045 (commercial-safety): application code can forget; the schema and retrieval layer cannot.
+
+**UI surfaces three rules**:
+- When viewing a public-library project (`is_public = true`), the corpus pane hides the Upload button, the URL-fetch input, and the per-document DELETE buttons. A "Public library — read-only" chip appears in the header. The DELETE endpoint already blocked public projects ([src/app/api/projects/[id]/route.ts](src/app/api/projects/[id]/route.ts) lines 26-31) — the UI now matches.
+- The `PublicLibrariesSection` no longer inline-expands the full doc list. It's now a single-line opt-in toggle: "Public library — 67 docs — included / not included in this project's retrievals" with an `Include`/`Remove` button that PATCHes the project flag. The previous BROWSE expansion was redundant with the project's own document list and was the surface that made the DELETE-on-public-doc confusion possible in the first place.
+- A new PATCH endpoint on `/api/projects/[id]` accepts `include_public_libraries: boolean` and refuses to mutate public projects (the public library itself can't be edited from the UI).
+
+### What we considered
+
+- **A separate "public library inclusion" UI surface elsewhere in the app.** Considered, rejected — the natural place is the corpus pane, since the corpus is what retrieval pulls from. Putting it in Settings would have made the boundary invisible at the moment of decision (uploading a sensitive document).
+- **Default `include_public_libraries = true` for new projects.** Considered, rejected. Aaron's instruction was unambiguous — opt-in. The cold-start argument (D-033) for auto-inclusion was true when the public library was the only corpus; with users now uploading their own documents, the auto-merge muddies which chunks ground which claims.
+- **Inline-render the public-library doc list collapsed-by-default.** Rejected — the user asked for the inline list to be gone entirely. The right place to browse the library is to open the public-library project in the project switcher (which now loads read-only).
+
+### The PM lesson
+
+**Read-only resources need to look read-only.** A DELETE button on a shared document is a bug even if the API blocks the call — the UI is a promise about what's possible. The schema enforces the boundary, the API rejects the call, but the UI is the only surface the user actually sees, and the UI was lying about what they could do.
+
+**"Auto-included" silently is rarely the right default for a shared resource.** Cold-start arguments for auto-inclusion (D-033) are real when there's nothing else in the user's corpus; they decay as soon as the user uploads anything of their own. Audit each "auto-" default in the product every few quarters — most of them outlive their original justification.
+
+### What would break if we got it wrong
+
+Skip the schema column and just gate at the UI: a future code path that calls `retrieve` directly (an eval, a back-fill script, a one-off API exploration) inherits the old auto-merge behaviour, and a confidential project leaks shared-library chunks into its grounding without the researcher knowing. The gate has to live in `retrieve`, not above it.
+
+Skip the UI fix and leave the DELETE button on public docs: even if the API blocks the call (it does), the first time a researcher clicks it and sees a 403 they get a "wait, was this a button I was allowed to use?" pause that erodes the trust commitment the rest of the product works hard to earn.
+
+Default `include_public_libraries = true` for new projects to "make onboarding easier": defeats the entire boundary, plus surprises NDA-bound projects with shared corpus contamination at exactly the wrong moment.
+
+---
+
+## D-046 — Closing the deferred audit items: judge probes + adversarial probes
+
+### The story
+
+D-035 (audit Tier 3-5 push) closed 14 of 22 items and deferred 4 with rationale. Audit #2 added five more deferred items (E-1 through E-5). After D-045 shipped the commercial-safety guardrail, the deferred-items list was the next natural workstream — and Aaron's instruction was direct: *close them*.
+
+The deferred list, audited honestly:
+
+| Item | Original rationale | Honest re-read |
+|---|---|---|
+| D-7 streaming responses | "Architectural shift; touches every generation" | Still true. Loading-stage hints (D-035) cover the perceived-latency gap at much lower cost. **Keep deferred.** |
+| R-5 skip logic / question ordering / screener | "Real questionnaire-builder territory" | Still true. Whole product area, not a closable item. **Keep deferred.** |
+| R-1 / R-2 judge probes (hypothesis specificity, persona under_represents quality) | "Subjective quality eval probes, Sonnet-as-judge" | Closable — the D-042 citation-accuracy chassis is the template. |
+| D-8 optimistic UI | "Flows are <300ms; real value < real cost" | Worth revisiting (see [[d-048]]). |
+| E-1 story-angle quality probe | "Subjective quality; needs human-scored baseline" | Closable — rubric-based judge sets the synthetic baseline; human scoring layers on later. |
+| E-2 recommendation quality probe | "D-039 just shipped; needs real-corpus data" | Closable — synthesised upstream context (frozen hypotheses/personas/analysis) lets us judge the generator behaviour without depending on real-wave data. |
+| E-3 variant-recommendation accuracy probe | "selection_mode telemetry will provide signal organically" | Closable — we don't have real selection_mode data yet; a judge-agreement probe gives a synthetic short-loop signal until telemetry accumulates. |
+| E-4 adversarial / prompt-injection probes | "Worth a dedicated probe type when product enters a real user environment" | Closable — the product *is* in a real user environment (live at premise-one.vercel.app). |
+| E-5 model-regression A/B | "Do once per new model, not as a permanent CI gate" | **Keep deferred.** One-shot pattern, not a probe type. |
+
+Six closable. Two stay deferred for the same reasons they were originally — those reasons hold.
+
+### What we built
+
+**Six new probe types** wired into the eval harness:
+
+| Probe type | Closes | What it catches |
+|---|---|---|
+| `hypothesis-judge` | R-1 | Sonnet rubric: specificity, falsifiability, evidence_tightness, novelty, distinctness across set |
+| `persona-judge` | R-2 | Sonnet rubric: behavioural specificity, distinctness, under_represents quality, grounded to corpus |
+| `recommendation-judge` | E-2 | Sonnet rubric: causal insight clarity, action specificity, calibration honesty, caveat completeness |
+| `story-angle-judge` | E-1 | Sonnet rubric: audience distinctness across set, lede sharpness, evidence chain coherence, omits honesty |
+| `variant-judge` | E-3 | Independent Sonnet picks the fatigue-default per question; measures agreement rate vs `is_recommended` |
+| `prompt-injection` | E-4 | Adversarial inputs (ignore-prior, fake chunk IDs, system-prompt leak); must abstain or refuse |
+
+**A shared `judgeWithSonnet` primitive** in [`evals/lib/judge.ts`](evals/lib/judge.ts) — takes dimensions + rubric + payload, returns scored 1-5 per dimension via forced tool_use. The four creative-output judges (hypothesis / persona / recommendation / story-angle) share this; the variant-judge uses a smaller picks-array tool; the prompt-injection probe reuses the existing claim-and-citation assertions.
+
+**A synthesis helper** in [`evals/lib/synth.ts`](evals/lib/synth.ts) — casts compact JSON-fixture payloads into typed `Hypothesis` / `Persona` / `Analysis` / `Recommendation` shapes so deep-chain probes (recommendation, story-angle, variant) don't need a real upstream pipeline to run.
+
+**Twelve fixtures** across the six probe types — minimum two per type for hypothesis / persona / prompt-injection, single load-bearing fixture for the deep-chain probes (one is enough to detect regression on the prompt structure; more would just multiply costs without changing signal).
+
+### What we considered
+
+- **Build judge probes that take frozen *outputs* as fixtures and only score them.** Faster, cheaper, no live generation. Rejected — the point of a regression probe is to score *the generator's current behaviour*, not yesterday's frozen artefacts. Frozen-output probes would have scored 5/5 forever even as the live system drifted.
+- **Skip the deep-chain probes (recommendation, story-angle) until the product has accumulated real-corpus data.** That was D-039's deferral reasoning. Rejected on re-read: the synthesised upstream context is sufficient to detect generator regression on the prompt itself, which is what we care about. Real-corpus probes can layer on top later.
+- **Add a sixth dimension to every judge rubric to capture "Aaron's editorial voice."** Considered, rejected — that's a positioning property of the *output as shipped to the deck*, not a property of the generator. Judging it here would conflate the prompt with the human editorial pass on top of it.
+- **Add `recommendation-rejection-rationale` telemetry as a probe.** That's a real-usage signal, not a synthetic probe. The probe says "did the generator produce something a stricter reviewer agrees with?" — the telemetry says "did the researcher accept what the generator produced?" Both are useful; both are different layers.
+
+### The PM lesson
+
+**Deferred items are a backlog, not a graveyard.** D-035 framed the deferred-items list as "we'll do these when a real wave surfaces the need." That's a reasonable rule until you find yourself doing all the *other* items in the queue — at which point the deferred items become the easiest items left, and the rationale shifts from "wait for the signal" to "close them because the marginal cost is now low."
+
+**Judge probes are the ceiling; structural probes are the floor.** The existing `hypothesis-quality` probe asserts fields exist and statements are non-duplicate — the floor. The new `hypothesis-judge` probe scores qualitative properties — the ceiling. Both matter; neither alone is enough. Same logic D-038 applied to strict abstention (the floor) vs calibrated estimation (the ceiling): an eval harness without a ceiling lets quality drift inside the structural envelope.
+
+### What would break if we got it wrong
+
+Use the same Haiku verifier model to judge the output it just produced: zero independence, false-positive rate compounds. The whole point of D-042 was *independent* Sonnet judging the Haiku verifier; same principle generalises to every quality probe.
+
+Skip the synth.ts helper and try to chain real DB writes for upstream context: every probe run leaves stray hypothesis/persona/recommendation rows in the eval project DB, the eval-setup reset becomes brittle, and the probe runtimes triple. Synth shapes are read-only typed casts — the generator reads them and produces output; nothing persists.
+
+Treat E-4 (prompt-injection) as a one-shot smoke test: the value of adversarial probes is in catching prompt-template drift over time. A probe type that runs every audit cycle is worth strictly more than a one-time pen-test.
+
+---
+
 ## D-045 — Commercial-safety guardrail on the public corpus
 
 ### The story
