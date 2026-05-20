@@ -158,6 +158,29 @@ export type ScopeInheritedFrom =
   | "corpus"
   | "model_default";
 
+// D-055: provenance label on right-pane generative artefacts. The corpus is
+// inspiration, not a fence — every claim self-reports where it came from so
+// the researcher always knows the source.
+//
+// Two flavours:
+//   * Corpus-flavoured (hypotheses, personas): does this claim come from the
+//     corpus, extend a corpus mechanism, or come from background knowledge?
+//   * Data-flavoured (analysis verdicts): does this verdict cite uploaded
+//     data, extrapolate from it, or come from background knowledge?
+//
+// Recommendations and story angles do NOT carry provenance — their grounding
+// is the evidence-chain (they must cite hypothesis/pattern IDs); the
+// upstream artefacts already declare provenance.
+export type CorpusProvenance =
+  | "corpus-grounded"
+  | "corpus-inspired"
+  | "general-knowledge";
+
+export type DataProvenance =
+  | "data-grounded"
+  | "data-extrapolated"
+  | "general-knowledge";
+
 export type HypothesisStatus = "proposed" | "accepted" | "rejected";
 
 export type Hypothesis = {
@@ -184,6 +207,8 @@ export type Hypothesis = {
   // D-049: which path set this hypothesis's scope. Amber tag fires on
   // 'corpus' / 'model_default'.
   scope_inherited_from: ScopeInheritedFrom | null;
+  // D-055: provenance tier — where this hypothesis's content came from.
+  provenance: CorpusProvenance | null;
   created_at: string;
   updated_at: string;
 };
@@ -198,6 +223,7 @@ export type HypothesisDraft = {
   contradicting_chunk_ids: string[];
   priority: 1 | 2 | 3 | 4 | 5;
   scope_inherited_from: ScopeInheritedFrom;
+  provenance: CorpusProvenance;
 };
 
 export type HypothesisGenerationResult = {
@@ -222,6 +248,8 @@ export type Persona = {
   supporting_chunk_ids: string[];
   priority: 1 | 2 | 3 | 4 | 5;
   status: HypothesisStatus;
+  // D-055: where this persona's content came from.
+  provenance: CorpusProvenance | null;
   created_at: string;
   updated_at: string;
 };
@@ -235,6 +263,7 @@ export type PersonaDraft = {
   under_represents: string;
   supporting_chunk_ids: string[];
   priority: 1 | 2 | 3 | 4 | 5;
+  provenance: CorpusProvenance;
 };
 
 export type VariantType =
@@ -341,6 +370,12 @@ export type HypothesisVerdict = {
   summary: string;
   supporting_evidence: string;
   caveats: string[];
+  // D-055: data-flavoured provenance on the verdict itself. The chassis
+  // does not enforce this in the DB (verdicts live as a jsonb array inside
+  // analyses); the runtime + tool schema enforce it. Default is
+  // 'general-knowledge' so an absent value is flagged honestly rather than
+  // silently claiming data support.
+  provenance?: DataProvenance;
 };
 
 export type EmergentPattern = {

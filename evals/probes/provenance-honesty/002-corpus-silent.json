@@ -1,0 +1,12 @@
+{
+  "id": "provenance-honesty-002",
+  "type": "provenance-honesty",
+  "description": "Brief on a topic the eval corpus does NOT cover (B2B SaaS pricing). Expect mostly general-knowledge tier with possibly one or two corpus-inspired hypotheses that extend mechanisms from the corpus's consumer-trust / sustainability material. Judge agreement rate ≥70%, no falsely-grounded.",
+  "brief_title": "B2B SaaS pricing and procurement friction",
+  "brief_content": "We want to test which procurement-process steps create the most friction in mid-market B2B SaaS purchases, how that friction differs between champion-led and committee-led buying motions, and what pricing-page elements reduce time-to-close.",
+  "expects": {
+    "min_hypotheses": 4,
+    "min_agreement_rate": 0.7,
+    "no_false_grounding": true
+  }
+}

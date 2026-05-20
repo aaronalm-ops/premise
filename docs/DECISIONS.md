@@ -1398,6 +1398,98 @@ Two taskforce-driven tightenings of the same prompt (see `docs/TASKFORCE_CRITIQU
 
 ---
 
+## D-055 — Corpus is inspiration, not a fence (taskforce-driven)
+
+### The story
+
+A senior researcher opens Premise with a brief on a topic her corpus doesn't cover. She clicks Generate. The tool stares back: *"No hypotheses could be generated. The corpus has no chunks relevant to this brief."* In thirty years of agency work she has never had a junior analyst respond to a brief that way. The junior would say *"I haven't worked on travel before but here's what I'd test based on consumer-behaviour patterns I know, plus two angles your sustainability work suggests might transfer."* That's the answer the tool should be giving.
+
+The same dogfood that drove D-049 / D-050 / D-051 caught the deeper problem: D-002's *"strict abstention on RAG"* — load-bearing for the build phase — had been over-applied to every artefact the tool produces. The chat pane (Q&A against the corpus) genuinely needs that floor, because researchers will paste those answers into client decks. But the right-pane artefacts (hypotheses, personas, analysis verdicts) are different shapes of work. A hypothesis is, by definition, a claim to be tested. A persona is an archetype the researcher will validate with fieldwork. Refusing to suggest these when the corpus is thin isn't safety — it's dereliction.
+
+Aaron's framing: *"the corpus is supposed to be inspiration, not a restriction."* The fix isn't to remove the floor — it's to be precise about where the floor applies, and to add a structural honesty label so the researcher always knows the source of every claim.
+
+### The taskforce convened
+
+Five lenses (see the conversation log: Marcus the insights workflow researcher, Dr. Riya the AI-safety researcher, James the product strategist, Sam the conversational AI designer, Devi the research director). They converged on three principles:
+
+1. **The floor was over-applied.** Strict abstention is right for load-bearing claims about real data (chat Q&A, analysis verdicts about uploaded data). It's wrong for proposals the researcher will validate (hypotheses, personas).
+2. **The fix is provenance, not permission.** Don't remove the floor — make it precise. Three tiers per artefact, structurally enforced, visibly labelled. Same instinct as `scope_inherited_from` (D-049), `requires_behavioral_validation` (D-051), `selection_mode` (D-040): schema-enforced honesty over hidden discipline.
+3. **Per-artefact discipline.** Different artefacts have different fabrication costs. Hypotheses are proposals; verdicts are findings; recommendations are creative synthesis from already-vetted inputs. Each gets the right grounding model.
+
+### What we built
+
+**The split:**
+
+| Surface | Grounding model |
+|---|---|
+| Chat pane (left) | Strict abstention to corpus. D-002 / D-010 chassis untouched. |
+| Hypotheses | Provenance: `corpus-grounded` / `corpus-inspired` / `general-knowledge` |
+| Personas | Provenance: same three tiers |
+| Questions | None — questions are the instrument, not findings |
+| Analysis verdicts | Provenance to *uploaded data*: `data-grounded` / `data-extrapolated` / `general-knowledge` |
+| Recommendations | Existing evidence-chain only (cite hypothesis/pattern IDs) — synthesis, not claims |
+| Story angles | Existing evidence-chain only — creative framing |
+
+**The "corpus-inspired" tier is the load-bearing addition.** A chunk that says *"Tier-3 consumers reduce switching when payment friction increases"* can ground the broader hypothesis *"Gen Z travellers reduce booking-completion when payment friction increases"* — the mechanism (friction → drop-off) generalises. The chunk gets cited; the scope stays brief-set (D-049). This is the layer the model needs to extend its corpus rather than be fenced by it.
+
+**Code changes:**
+- Migration 0018: adds `provenance` columns to `hypotheses` + `personas`. Redefines `replace_proposed_hypotheses` and `replace_proposed_personas` to persist the new field. Analysis verdict provenance lives inside the existing `hypothesis_verdicts` jsonb array — no DB column needed.
+- Types: new `CorpusProvenance` and `DataProvenance` enums.
+- Prompts: hypothesis + persona + analysis system prompts rewritten with the provenance discipline, including worked examples for each tier. The "drop the hypothesis" escape clause from the D-049 hot-patch is removed; the model now produces a mix of tiers when the corpus partially covers the brief, and falls back to `general-knowledge` freely when the corpus is silent.
+- Generators: strict-citation filters removed from hypothesis-gen and persona-gen. Provenance integrity rule replaces them: a draft self-reporting `corpus-grounded` or `corpus-inspired` with no valid chunk citations gets *downgraded* to `general-knowledge` (honest labelling > false grounding).
+- UI: three-tier chips on every hypothesis, persona, and verdict card. Distinct colours (emerald = corpus/data-grounded, sky = inspired/extrapolated, zinc = general-knowledge) so a researcher can scan a card and know in 0.5 seconds where the claim came from. Analysis verdicts marked `general-knowledge` render a prominent banner above the verdict body explaining the limitation — pitching a `general-knowledge` verdict to a client requires the researcher to have validated it independently.
+- API: the 422 errors that previously said *"No hypotheses could be generated. The corpus has no chunks relevant…"* now read *"The hypothesis generator produced no drafts. This is usually a transient model error — try again."* When the corpus is empty, the generator now ships `general-knowledge` hypotheses; the 422 case is genuinely rare.
+- Prompt versions: hypothesis-gen v4, persona-gen v4, analysis-gen v3.
+- CLAUDE.md non-negotiable #2 rewritten.
+
+### What we considered
+
+- **Keep the strict floor everywhere, fix the prompt to never refuse.** Considered — that's what the hot-patch immediately before this entry did. It worked for region-neutral briefs against partially-relevant corpora but failed for the public-only-mode cold-start. The root problem wasn't the prompt; it was the architecture. Patching the prompt was the wrong abstraction layer.
+- **Add a per-project "Strict mode" / "Inspiration mode" toggle.** Considered. Rejected: a flag adds documentation overhead and confuses the model surface. Per-artefact discipline is cleaner.
+- **Add provenance to recommendations + story angles too.** Aaron explicitly rejected this in the same conversation — recommendations and story angles are "tied to storytelling and creativity, strictly inspirational" already. Their grounding is the evidence-chain (must cite hypothesis/pattern IDs); adding a separate provenance field would be belt-on-belt-on-suspenders.
+- **Use Sonnet to verify provenance labels honestly after generation.** Considered as a follow-up. The provenance-honesty eval probe will do this in CI rather than at runtime — runtime cost would compound across every artefact. Deferred to the eval push.
+
+### The PM lesson
+
+**The shape of safety depends on the shape of the artefact.** A blanket "no fabrication" rule reads as principled but actually misclassifies the failure modes. A fabricated *answer to a direct question* is dangerous because the user takes it at face value. A fabricated *hypothesis* is, by definition, a claim to be tested — its cost is bounded by the validation step the researcher always runs. The right safety architecture mirrors the artefact's life cycle: strict where the artefact is consumed as fact, labelled where the artefact is consumed as proposal.
+
+**Honesty in the artefact beats hiddennes in the implementation — again.** Same instinct as `omits` (D-036/D-038), `selection_mode` (D-040), `revised_after_analysis` (D-041), `scope_inherited_from` (D-049), `requires_behavioral_validation` (D-051). The compounding pattern is now load-bearing across the product: every generative surface declares its uncertainty in a structured field rather than burying it in prose. The researcher can scan a card and know what to trust.
+
+**The "I refuse to help" failure is worse than the "I helped, labelled" failure.** When a researcher hits a refusal, they lose trust in the tool. When they hit a labelled exploratory output, they get value and know what to validate. The asymmetry favours labelling over refusal — *if and only if* the labels are visually prominent and structurally enforced.
+
+### What this changes about the product story
+
+Before: *"Premise refuses to fabricate. Strict grounding on every claim."*
+After: *"Premise uses your corpus to think — and tells you exactly what came from your work, what extended from your work, and what came from general knowledge. You always know the source of every claim. The chat pane stays strict because that's where direct questions deserve sourced answers; the artefact pane uses your corpus as inspiration because that's where the work is."*
+
+That's not weaker. It's more useful and more honest about what the tool actually is. The "calibrated estimation as the ceiling" frame from D-038 now has a structural realisation: every right-pane artefact is a calibrated estimation, with the calibration visible.
+
+### What would break if we got it wrong
+
+**Sloppy provenance labelling.** If the model marks claims as `corpus-grounded` when they should be `general-knowledge`, the floor erodes. The downgrade rule (any `corpus-grounded`/`corpus-inspired` draft with empty citations becomes `general-knowledge`) catches the most common failure shape. The eval probe (planned, deferred) catches drift. The next regression to watch for is the inverse — the model being too conservative and marking everything `general-knowledge` even when it could ground.
+
+**UI chips not visually distinct.** If the green/sky/zinc tags don't read as different at a glance, researchers stop reading them and treat all output as one. The chip styling needs to be testable on a real screen with real users; if it doesn't survive that test, we go higher-contrast.
+
+**Verdict-level creep.** If we later extend provenance to *recommendations* "for consistency," we'd be breaking the principle. Recommendations are synthesis from accepted hypotheses, which already declare their own provenance. Adding a second layer would clutter the surface without adding signal. The line holds: provenance lives on the artefacts whose claims are *first-order* (hypotheses, personas, verdicts); synthesis artefacts inherit through the evidence chain.
+
+**Chat pane drift.** The strict floor on the chat pane stays. If a future PM or model release loosens it, the trust contract we built around D-002 evaporates. Same instinct as D-016 (confidentiality at SQL boundary) and D-045 (commercial-safety at SQL boundary): the floor must be enforced at a layer below application code so it can't be quietly relaxed by a prompt change.
+
+### Footnote 1 — Runtime provenance rectifier (2026-05-19)
+
+The first run of the `provenance-honesty` eval probe (the day after D-055 shipped) caught the failure mode D-055 was explicitly designed to catch — and the chassis didn't catch it on its own. Three of seven hypotheses on the AI-tooling brief came back labelled `corpus-grounded` or `corpus-inspired` while citing the *methodology paragraph* of the source study rather than any chunk that supported the substantive claim. The judge called it bluntly: *"citations are decorative."*
+
+The runtime chassis's first-pass integrity rule only fires when citations are *empty*. The probe revealed the second failure mode: citations *present but irrelevant*. Same pattern the model has when humans aren't watching — cite something tangentially related and move on.
+
+**Fix.** New `rectifyHypothesisProvenance` + `rectifyPersonaProvenance` in [`src/lib/rag/consistency-checks.ts`](src/lib/rag/consistency-checks.ts). One batched Sonnet call per generation (not per draft — same cost shape as D-035's batched verifier). For each draft labelled `corpus-grounded` or `corpus-inspired`, the auditor inspects the actual cited chunk contents and returns one of three verdicts: `supports` / `topic-match-only` / `no-citations`. `topic-match-only` drafts get downgraded to `general-knowledge` with citations stripped. The card renders honestly without the researcher having to read every cited chunk to catch the mismatch.
+
+Prompts also gained an explicit worked anti-example showing the methodology-paragraph failure pattern — *"the chunk is from the right study but does not support the ranking claim. It's about sample/method."* Prompts bumped to `v4.1-2026-05-19`; new `provenance-audit` endpoint at `v1-2026-05-19`.
+
+**Why a footnote, not D-056.** Same artefact, same contract, same author. D-055 promised honest provenance labels; this rectifier is how the promise gets kept when the prompt alone isn't enough. A new D-NNN here would be inflation: the *contract* didn't change, the *enforcement layer* got a second floor underneath it. Same shape as D-036's story-prompt footnote (which gained content tightening without a new D-NNN).
+
+**Pattern worth naming.** This is the third time the same architectural shape has been applied: tool-schema enforces a field exists → independent Sonnet pass verifies the field's value is honest → mismatches get auto-corrected with a visible artefact note. D-042's citation-accuracy probe (catches the D-035 verifier's false-positives). D-050's verdict-direction-check + action-consistency-check. Now D-055's provenance-audit. **Generating with a hard schema and verifying with a softer second pass is the load-bearing pattern of Premise's right-pane integrity.** It costs one extra Sonnet call per generation; it's worth it.
+
+---
+
 ## D-053 — Honest CSV framing in the analyser (dogfood-driven)
 
 ### The story

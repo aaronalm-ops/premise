@@ -332,14 +332,27 @@ export function AnalysisArtefact({
                   key={i}
                   className="rounded-md border border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 text-xs"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <VerdictBadge verdict={v.verdict} confidence={v.confidence} />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <VerdictBadge verdict={v.verdict} confidence={v.confidence} />
+                      {v.provenance && (
+                        <VerdictProvenanceChip provenance={v.provenance} />
+                      )}
+                    </div>
                     {h && (
                       <span className="text-[10px] text-[var(--color-muted-foreground)]">
                         H{h.ordinal + 1} · priority {h.priority}/5
                       </span>
                     )}
                   </div>
+                  {v.provenance === "general-knowledge" && (
+                    <div className="mt-2 rounded border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-[11px] leading-relaxed text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100">
+                      <span className="font-semibold uppercase tracking-wider">Not supported by uploaded data</span>
+                      <span className="ml-1">
+                        This verdict reflects standard industry knowledge, not signal in your uploaded data. Validate independently before pitching.
+                      </span>
+                    </div>
+                  )}
                   {h && (
                     <p className="mt-1 leading-relaxed text-[var(--color-foreground)]">
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
@@ -452,5 +465,43 @@ function VerdictBadge({
         {confidence} confidence
       </span>
     </div>
+  );
+}
+
+// D-055: verdict provenance chip (data-flavoured). 'general-knowledge'
+// triggers a banner above the verdict body in addition to this inline chip.
+function VerdictProvenanceChip({
+  provenance,
+}: {
+  provenance: "data-grounded" | "data-extrapolated" | "general-knowledge";
+}) {
+  const styles: Record<typeof provenance, { className: string; label: string; title: string }> = {
+    "data-grounded": {
+      className:
+        "rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100",
+      label: "From data",
+      title:
+        "D-055: data-grounded. Supported by specific signal in your uploaded data (counts, percentages, quotes).",
+    },
+    "data-extrapolated": {
+      className:
+        "rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-900 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-100",
+      label: "Extrapolated",
+      title:
+        "D-055: data-extrapolated. Plausible given the visible data but extends beyond what's strictly observable — typical for verdicts on CSV samples where significance testing would be needed.",
+    },
+    "general-knowledge": {
+      className:
+        "rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100",
+      label: "General knowledge",
+      title:
+        "D-055: general-knowledge. Standard industry pattern with no specific support in your uploaded data. Validate independently before pitching.",
+    },
+  };
+  const s = styles[provenance];
+  return (
+    <span className={s.className} title={s.title}>
+      {s.label}
+    </span>
   );
 }

@@ -11,13 +11,28 @@ import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import { HYPOTHESIS_SYSTEM } from "@/lib/prompts/hypothesis";
 import { retrieve } from "@/lib/rag/retrieval";
 import { rerank } from "@/lib/rag/reranker";
-import { SCOPE_AXES, type HypothesisDraft, type RetrievedChunk, type ScopeClarifications, type ScopeDimensions, type ScopeInheritedFrom } from "@/lib/rag/types";
+import { rectifyHypothesisProvenance } from "@/lib/rag/consistency-checks";
+import {
+  SCOPE_AXES,
+  type CorpusProvenance,
+  type HypothesisDraft,
+  type RetrievedChunk,
+  type ScopeClarifications,
+  type ScopeDimensions,
+  type ScopeInheritedFrom,
+} from "@/lib/rag/types";
 
 const SCOPE_INHERITED_VALUES: ScopeInheritedFrom[] = [
   "brief",
   "clarifier",
   "corpus",
   "model_default",
+];
+
+const PROVENANCE_VALUES: CorpusProvenance[] = [
+  "corpus-grounded",
+  "corpus-inspired",
+  "general-knowledge",
 ];
 
 const HYPOTHESIS_TOOL = {
@@ -80,6 +95,12 @@ const HYPOTHESIS_TOOL = {
               description:
                 "Where this hypothesis's scope came from. 'brief' if every scope axis in the statement traces to brief phrasing; 'clarifier' if any axis came from a researcher clarification; 'corpus' if you took scope from chunks without brief/clarifier support; 'model_default' if you generated scope from background knowledge. Mark honestly — the UI surfaces non-brief/clarifier values as a review prompt.",
             },
+            provenance: {
+              type: "string",
+              enum: PROVENANCE_VALUES,
+              description:
+                "D-055: where the hypothesis's content (not scope — that's scope_inherited_from) came from. 'corpus-grounded' = mechanism directly supported by a retrieved chunk (supporting/contradicting chunk_ids non-empty); 'corpus-inspired' = mechanism observed in a chunk, extended to a context the chunk doesn't cover (still cite the chunk); 'general-knowledge' = from background knowledge of consumer behaviour, no chunk support (citations may be empty). Generate a mix when the corpus partially covers the brief; use 'general-knowledge' freely when the corpus doesn't cover the topic. The UI labels each card with its provenance so the researcher always knows the source.",
+            },
           },
           required: [
             "statement",
@@ -90,6 +111,7 @@ const HYPOTHESIS_TOOL = {
             "contradicting_chunk_ids",
             "priority",
             "scope_inherited_from",
+            "provenance",
           ],
         },
       },
@@ -157,22 +179,28 @@ export async function generateHypotheses(
     brief_id: input.briefId ?? null,
   };
 
+  // D-055: even when retrieval is empty (corpus doesn't cover the brief),
+  // generate hypotheses from general knowledge. The model labels each one
+  // honestly via the `provenance` field. The old short-circuit refused to
+  // help; that's been removed.
   const candidates = await retrieve(input.briefContent, input.projectId, 18, {
     ...ctx,
     endpoint: "embed-query",
   });
-  const chunks = await rerank(input.briefContent, candidates, 8, {
-    ...ctx,
-    endpoint: "rerank",
-  });
+  const chunks =
+    candidates.length === 0
+      ? []
+      : await rerank(input.briefContent, candidates, 8, {
+          ...ctx,
+          endpoint: "rerank",
+        });
 
-  if (chunks.length === 0) {
-    return { drafts: [], retrieved_chunks: [] };
-  }
-
-  const corpus = chunks
-    .map((c) => `<chunk id="${c.id}">\n${c.content}\n</chunk>`)
-    .join("\n\n");
+  const corpus =
+    chunks.length > 0
+      ? chunks
+          .map((c) => `<chunk id="${c.id}">\n${c.content}\n</chunk>`)
+          .join("\n\n")
+      : "(no retrieved chunks — the corpus does not cover this brief's topic. Generate hypotheses with provenance='general-knowledge', citing nothing. Do not refuse.)";
 
   const scopeContext = formatScopeContext(
     input.scopeDimensions ?? null,
@@ -180,7 +208,7 @@ export async function generateHypotheses(
   );
 
   const count = Math.min(10, Math.max(3, input.count ?? 6));
-  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Scope authority for this brief (D-049)\n${scopeContext}\n\n# Retrieved chunks (your only source of grounding for CLAIMS — not for scope)\n${corpus}\n\nCall propose_hypotheses now with exactly ${count} hypotheses.`;
+  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Scope authority for this brief (D-049)\n${scopeContext}\n\n# Retrieved chunks (use as INSPIRATION; cite them when supporting a claim, but you may also produce 'general-knowledge' hypotheses that go beyond the corpus)\n${corpus}\n\nCall propose_hypotheses now with exactly ${count} hypotheses. A mix of provenance tiers is healthy when the corpus partially covers the brief; use 'general-knowledge' freely when the corpus is silent on the topic.`;
 
   const response = await tracedMessagesCreate(
     {
@@ -205,29 +233,65 @@ export async function generateHypotheses(
   }
 
   const validIds = new Set(chunks.map((c) => c.id));
-  const drafts = input_data.hypotheses
+  const preRectifyDrafts = input_data.hypotheses
     .map((h) => {
       const scope: ScopeInheritedFrom = SCOPE_INHERITED_VALUES.includes(
         h.scope_inherited_from,
       )
         ? h.scope_inherited_from
         : "model_default";
+      const provenance: CorpusProvenance = PROVENANCE_VALUES.includes(
+        h.provenance,
+      )
+        ? h.provenance
+        : "general-knowledge";
+      const supporting = (h.supporting_chunk_ids ?? []).filter((id) =>
+        validIds.has(id),
+      );
+      const contradicting = (h.contradicting_chunk_ids ?? []).filter((id) =>
+        validIds.has(id),
+      );
+      // D-055: provenance integrity. If a draft self-reported as
+      // 'corpus-grounded' or 'corpus-inspired' but has no valid chunk
+      // citations (because the model hallucinated chunk IDs the retrieval
+      // never returned), downgrade to 'general-knowledge' rather than
+      // pretending the corpus supports it. Honest labelling > false
+      // grounding.
+      const correctedProvenance: CorpusProvenance =
+        (provenance === "corpus-grounded" ||
+          provenance === "corpus-inspired") &&
+        supporting.length === 0 &&
+        contradicting.length === 0
+          ? "general-knowledge"
+          : provenance;
       return {
         ...h,
-        supporting_chunk_ids: (h.supporting_chunk_ids ?? []).filter((id) =>
-          validIds.has(id),
-        ),
-        contradicting_chunk_ids: (h.contradicting_chunk_ids ?? []).filter(
-          (id) => validIds.has(id),
-        ),
+        supporting_chunk_ids: supporting,
+        contradicting_chunk_ids: contradicting,
         scope_inherited_from: scope,
+        provenance: correctedProvenance,
       };
-    })
-    .filter(
-      (h) =>
-        h.supporting_chunk_ids.length > 0 ||
-        h.contradicting_chunk_ids.length > 0,
-    );
+    });
+
+  // D-055: no more strict-citation filter. General-knowledge hypotheses are
+  // allowed and useful — they're how the tool helps the researcher when the
+  // corpus doesn't cover the brief. Each card carries its provenance tag so
+  // the researcher always knows the source.
+
+  // D-055 footnote (2026-05-19): the first probe run caught the model
+  // routinely citing topic-matching chunks (the methodology paragraph from
+  // a study) as if they grounded substantive claims. The runtime chassis
+  // already strips empty citations + downgrades; this rectifier handles
+  // the present-but-irrelevant case. One batched Sonnet call per generation.
+  const drafts =
+    chunks.length > 0
+      ? await rectifyHypothesisProvenance({
+          drafts: preRectifyDrafts,
+          retrievedChunks: chunks,
+          projectId: input.projectId,
+          briefId: input.briefId ?? null,
+        })
+      : preRectifyDrafts;
 
   return { drafts, retrieved_chunks: chunks };
 }

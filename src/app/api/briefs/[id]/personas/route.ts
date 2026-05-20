@@ -51,7 +51,7 @@ export async function POST(
       if (drafts.length === 0) {
         throw new HttpError(
           422,
-          "No personas could be generated. The corpus has no chunks relevant to this brief, or all draft personas lacked grounding citations.",
+          "The persona generator produced no drafts. This is usually a transient model error — try again. If it keeps happening, the brief may be too short to suggest meaningful audience archetypes.",
           { retrieved_chunks },
         );
       }

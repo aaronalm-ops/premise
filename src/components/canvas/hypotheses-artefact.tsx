@@ -392,6 +392,7 @@ function HypothesisCard({
               Scope: {h.scope_inherited_from === "corpus" ? "from corpus" : "model default"}
             </span>
           )}
+          {h.provenance && <ProvenanceChip provenance={h.provenance} />}
           <button
             onClick={() => setExpanded((e) => !e)}
             className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:underline"
@@ -563,6 +564,45 @@ function HypothesisCard({
         </div>
       )}
     </div>
+  );
+}
+
+// D-055: provenance chip — three tiers, distinct colors so the researcher can
+// scan a card and know in 0.5 seconds whether the claim is from their corpus,
+// extended from it, or from background knowledge.
+function ProvenanceChip({
+  provenance,
+}: {
+  provenance: "corpus-grounded" | "corpus-inspired" | "general-knowledge";
+}) {
+  const styles: Record<typeof provenance, { className: string; label: string; title: string }> = {
+    "corpus-grounded": {
+      className:
+        "rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100",
+      label: "From corpus",
+      title:
+        "D-055: corpus-grounded. Mechanism directly supported by retrieved chunks. Citations on the card.",
+    },
+    "corpus-inspired": {
+      className:
+        "rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-900 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-100",
+      label: "Inspired by corpus",
+      title:
+        "D-055: corpus-inspired. The mechanism comes from your corpus; this hypothesis extends it to a context the corpus doesn't directly cover. Validate the extension.",
+    },
+    "general-knowledge": {
+      className:
+        "rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100",
+      label: "General knowledge",
+      title:
+        "D-055: general-knowledge. Drawn from background knowledge of consumer behaviour, not from your corpus. Validate against data before pitching.",
+    },
+  };
+  const s = styles[provenance];
+  return (
+    <span className={s.className} title={s.title}>
+      {s.label}
+    </span>
   );
 }
 

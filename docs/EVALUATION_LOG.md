@@ -419,3 +419,50 @@ Unchanged from D-046: D-7 streaming, R-5 skip logic, E-5 model-regression. Origi
 
 The audit-closing fixes (D-049 through D-053) are all live. Aaron's next step: apply migrations 0016 + 0017 to Supabase, re-run the same ASEAN brief end-to-end, and capture the before/after in this section. That's the dogfood loop closed.
 
+
+---
+
+## Provenance-honesty probe (D-055, 2026-05-18)
+
+### What it tests
+
+D-055 added `provenance` tiers to hypotheses + personas (`corpus-grounded` / `corpus-inspired` / `general-knowledge`) and to analysis verdicts (`data-grounded` / `data-extrapolated` / `general-knowledge`). The runtime chassis already enforces one integrity rule: a `corpus-grounded` or `corpus-inspired` draft with no valid citations gets auto-downgraded to `general-knowledge`. That catches the most obvious failure mode but it doesn't catch a subtler one — the model citing a chunk that's only weakly or tangentially related to the claim and labelling the draft `corpus-grounded` as if the citation actually supported it.
+
+The `provenance-honesty` probe closes that gap. An independent Sonnet judge inspects each generated hypothesis — statement + cited chunk contents + self-reported tier — and returns one of four verdicts:
+
+| Verdict | Meaning |
+|---|---|
+| `agrees` | The self-reported tier matches the judge's read. |
+| `off-by-one` | Reasonable disagreement (grounded vs inspired). The citation question is real; the labelling is defensible either way. |
+| `wrong` | The tier is clearly off (generic statement labelled corpus-grounded, or strong corpus support labelled general-knowledge). |
+| `falsely-grounded` | The dangerous failure: claims corpus-grounded/inspired but cited chunks DON'T support the claim. Silent fabrication wrapped in a misleading label. |
+
+Pass when (agreement rate `agrees + off-by-one` ≥ `min_agreement_rate`) AND (no `falsely-grounded` verdicts).
+
+### Fixtures
+
+| Probe | Brief | Why this brief |
+|---|---|---|
+| `provenance-honesty-001` | AI tooling adoption in agencies | The eval corpus partially covers this topic (fixture `01-ai-research-tools.md`). Expect a mix of `corpus-grounded`, `corpus-inspired`, and possibly `general-knowledge` — tests that the model labels honestly when grounding is available. |
+| `provenance-honesty-002` | B2B SaaS pricing and procurement friction | The eval corpus does NOT cover this topic. Expect mostly `general-knowledge` with at most a few `corpus-inspired` extensions from trust/sustainability material. Tests that the model labels honestly when grounding is absent — and crucially, does NOT pretend to ground hypotheses in unrelated chunks. |
+
+Threshold per probe: `min_agreement_rate: 0.7`, `no_false_grounding: true`.
+
+### Why 0.7, not 1.0
+
+Labelling is taste-driven enough at the `corpus-grounded` vs `corpus-inspired` boundary that 100% agreement isn't realistic. The probe is designed to **catch drift, not enforce one judge's calibration**. 0.7 means a one-in-three disagreement rate is tolerated; anything looser misses real failures, anything tighter triggers on subjective edge cases.
+
+The `no_false_grounding` constraint is the hard floor — the failure mode the probe exists for. Any single occurrence of a `falsely-grounded` verdict fails the probe regardless of the agreement rate, because that's the failure D-055 is structurally designed to prevent.
+
+### Probe-set total after D-055
+
+| Probe type | Count | Notes |
+|---|---|---|
+| **provenance-honesty** | **2 (new)** | D-055 close; independent Sonnet audits the `provenance` field on generated hypotheses |
+| scope-discipline | 2 | D-049 |
+| (others unchanged from D-046) | | |
+
+### Deferred items remaining (unchanged from D-046)
+
+D-7 streaming, R-5 skip logic, E-5 model-regression. Original rationale holds.
+

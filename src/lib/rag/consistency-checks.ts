@@ -30,9 +30,13 @@
 import { MODELS } from "@/lib/llm/anthropic";
 import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import type {
+  CorpusProvenance,
+  HypothesisDraft,
   HypothesisVerdict,
+  PersonaDraft,
   RecommendationConfidence,
   RecommendationDraft,
+  RetrievedChunk,
 } from "@/lib/rag/types";
 
 // ============================================================================
@@ -330,4 +334,267 @@ export async function rectifyRecommendations(input: {
       };
     }),
   );
+}
+
+// ============================================================================
+// PROVENANCE RECTIFIER (D-055 follow-up, 2026-05-19)
+// ============================================================================
+//
+// The first probe run of D-055's provenance-honesty eval (2026-05-19) caught
+// the model's most common failure mode: citing chunks that share a topic with
+// the brief ("AI tooling") as if they supported the specific claim — when in
+// fact the cited chunk only covers the study's sampling method or another
+// tangential element. The runtime chassis already downgrades drafts with
+// EMPTY citations; this rectifier handles drafts with PRESENT-BUT-IRRELEVANT
+// citations.
+//
+// One batched Sonnet call per generation (not per draft) — same cost shape
+// as D-035's batched verifier. Drafts flagged as topic-match-not-support get
+// downgraded to 'general-knowledge' with citations stripped, so the card
+// renders honestly.
+
+const PROVENANCE_AUDIT_TOOL = {
+  name: "audit_provenance_runtime",
+  description:
+    "For each draft, judge whether the cited chunks ACTUALLY SUPPORT the claim (not just share a topic with it). Returns one verdict per draft.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      audits: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            index: {
+              type: "integer",
+              description: "1-indexed position in the input list.",
+            },
+            verdict: {
+              type: "string",
+              enum: ["supports", "topic-match-only", "no-citations"],
+              description:
+                "'supports' = cited chunks support the specific claim. 'topic-match-only' = chunks share a topic with the brief or the draft but DO NOT support this specific claim (most common failure: a method/sample chunk cited for a substantive findings claim). 'no-citations' = empty citation list.",
+            },
+            note: {
+              type: "string",
+              description:
+                "One short sentence (≤25 words) when verdict ≠ supports.",
+            },
+          },
+          required: ["index", "verdict", "note"],
+        },
+      },
+    },
+    required: ["audits"],
+  },
+  cache_control: { type: "ephemeral" as const },
+};
+
+type ProvenanceAuditVerdict =
+  | "supports"
+  | "topic-match-only"
+  | "no-citations";
+
+type ProvenanceAudit = {
+  index: number;
+  verdict: ProvenanceAuditVerdict;
+  note: string;
+};
+
+const PROVENANCE_AUDIT_SYSTEM = `You are auditing whether cited chunks actually support a generated hypothesis or persona — or whether the citation is decorative (sharing a topic with the claim but not supporting it).
+
+The most common failure to catch: the model cites a chunk that's from the same source as a relevant chunk, but the *specific* chunk it cited is about methodology, sample composition, or another tangential element — not about the substantive mechanism the draft claims.
+
+Example of topic-match-only:
+- Draft: "Researchers rank fabricated statistics as the most damaging AI failure mode."
+- Cited chunk: "The study surveyed 142 senior insights professionals across India, the UK, and the US, using semi-structured interviews of 60-90 minutes."
+- Verdict: topic-match-only. The chunk is from the right study but does not support the ranking claim.
+
+Example of supports:
+- Draft: "Researchers rank fabricated statistics as the most damaging AI failure mode."
+- Cited chunk: "When ranked, fabricated statistics topped the list of damaging failures — 67% of respondents named it their top concern."
+- Verdict: supports. The chunk directly supports the claim.
+
+Be strict on topic-match-only. The cost of letting one through is a hypothesis label that lies about its grounding.`;
+
+export async function auditProvenanceBatch(input: {
+  items: Array<{
+    statement: string;
+    supportingChunkIds: string[];
+    contradictingChunkIds: string[];
+  }>;
+  retrievedChunks: RetrievedChunk[];
+  projectId: string;
+  briefId: string | null;
+}): Promise<ProvenanceAudit[]> {
+  if (input.items.length === 0) return [];
+
+  const chunkById = new Map(input.retrievedChunks.map((c) => [c.id, c]));
+
+  const blocks = input.items.map((it, i) => {
+    const cited = [
+      ...it.supportingChunkIds.map((id) => ({
+        kind: "supporting" as const,
+        chunk: chunkById.get(id),
+      })),
+      ...it.contradictingChunkIds.map((id) => ({
+        kind: "contradicting" as const,
+        chunk: chunkById.get(id),
+      })),
+    ].filter((x) => x.chunk !== undefined);
+
+    if (cited.length === 0) {
+      return [
+        `# Draft ${i + 1}`,
+        `Statement: ${it.statement}`,
+        `Cited chunks: (none — verdict should be 'no-citations')`,
+      ].join("\n");
+    }
+
+    const citedBlock = cited
+      .map(
+        (c) =>
+          `[${c.kind}, ${c.chunk!.id}] ${truncate(c.chunk!.content, 260)}`,
+      )
+      .join("\n");
+
+    return [
+      `# Draft ${i + 1}`,
+      `Statement: ${it.statement}`,
+      `Cited chunks:\n${citedBlock}`,
+    ].join("\n");
+  });
+
+  const payload = `Audit each of the following ${input.items.length} drafts.\n\n${blocks.join("\n\n---\n\n")}\n\nCall audit_provenance_runtime now.`;
+
+  const response = await tracedMessagesCreate(
+    {
+      model: MODELS.sonnet,
+      max_tokens: 1024,
+      system: [{ type: "text", text: PROVENANCE_AUDIT_SYSTEM }],
+      tools: [PROVENANCE_AUDIT_TOOL],
+      tool_choice: { type: "tool", name: PROVENANCE_AUDIT_TOOL.name },
+      messages: [{ role: "user", content: payload }],
+    },
+    {
+      project_id: input.projectId,
+      brief_id: input.briefId,
+      endpoint: "provenance-audit",
+    },
+  );
+
+  const block = response.content.find((b) => b.type === "tool_use");
+  if (!block || block.type !== "tool_use") return [];
+  const data = block.input as { audits?: ProvenanceAudit[] };
+  return Array.isArray(data.audits) ? data.audits : [];
+}
+
+// Rectifier: takes hypothesis drafts post-generation. For each draft whose
+// self-reported provenance is 'corpus-grounded' or 'corpus-inspired', runs
+// the batched audit. Topic-match-only drafts get downgraded to
+// 'general-knowledge' with citations stripped.
+export async function rectifyHypothesisProvenance(input: {
+  drafts: HypothesisDraft[];
+  retrievedChunks: RetrievedChunk[];
+  projectId: string;
+  briefId: string | null;
+}): Promise<HypothesisDraft[]> {
+  // Only audit drafts that claim corpus support — general-knowledge drafts
+  // don't need this check (they're already labelled honestly).
+  const indicesToAudit: number[] = [];
+  input.drafts.forEach((d, i) => {
+    if (
+      d.provenance === "corpus-grounded" ||
+      d.provenance === "corpus-inspired"
+    ) {
+      indicesToAudit.push(i);
+    }
+  });
+  if (indicesToAudit.length === 0) return input.drafts;
+
+  const items = indicesToAudit.map((i) => ({
+    statement: input.drafts[i].statement,
+    supportingChunkIds: input.drafts[i].supporting_chunk_ids,
+    contradictingChunkIds: input.drafts[i].contradicting_chunk_ids,
+  }));
+
+  const audits = await auditProvenanceBatch({
+    items,
+    retrievedChunks: input.retrievedChunks,
+    projectId: input.projectId,
+    briefId: input.briefId,
+  });
+
+  // Map audits back to the original draft indices.
+  const auditByLocalIndex = new Map(audits.map((a) => [a.index - 1, a]));
+
+  return input.drafts.map((d, originalIndex) => {
+    const localIndex = indicesToAudit.indexOf(originalIndex);
+    if (localIndex < 0) return d;
+    const audit = auditByLocalIndex.get(localIndex);
+    if (!audit || audit.verdict === "supports") return d;
+    // 'topic-match-only' or 'no-citations' (which the generator should have
+    // already downgraded, but defensively re-handle): strip citations and
+    // mark general-knowledge.
+    return {
+      ...d,
+      provenance: "general-knowledge" as CorpusProvenance,
+      supporting_chunk_ids: [],
+      contradicting_chunk_ids: [],
+    };
+  });
+}
+
+// Rectifier for personas — same pattern but persona drafts have only
+// supporting_chunk_ids (no contradicting). Topic-match-only drafts get
+// downgraded with citations stripped.
+export async function rectifyPersonaProvenance(input: {
+  drafts: PersonaDraft[];
+  retrievedChunks: RetrievedChunk[];
+  projectId: string;
+  briefId: string | null;
+}): Promise<PersonaDraft[]> {
+  const indicesToAudit: number[] = [];
+  input.drafts.forEach((d, i) => {
+    if (
+      d.provenance === "corpus-grounded" ||
+      d.provenance === "corpus-inspired"
+    ) {
+      indicesToAudit.push(i);
+    }
+  });
+  if (indicesToAudit.length === 0) return input.drafts;
+
+  const items = indicesToAudit.map((i) => ({
+    // Personas don't have a single 'statement' field; describe via name +
+    // description so the auditor sees the substantive claim.
+    statement: `${input.drafts[i].name} — ${input.drafts[i].description}`,
+    supportingChunkIds: input.drafts[i].supporting_chunk_ids,
+    contradictingChunkIds: [] as string[],
+  }));
+
+  const audits = await auditProvenanceBatch({
+    items,
+    retrievedChunks: input.retrievedChunks,
+    projectId: input.projectId,
+    briefId: input.briefId,
+  });
+
+  const auditByLocalIndex = new Map(audits.map((a) => [a.index - 1, a]));
+
+  return input.drafts.map((d, originalIndex) => {
+    const localIndex = indicesToAudit.indexOf(originalIndex);
+    if (localIndex < 0) return d;
+    const audit = auditByLocalIndex.get(localIndex);
+    if (!audit || audit.verdict === "supports") return d;
+    return {
+      ...d,
+      provenance: "general-knowledge" as CorpusProvenance,
+      supporting_chunk_ids: [],
+    };
+  });
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
 }

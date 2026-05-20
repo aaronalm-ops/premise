@@ -1,0 +1,12 @@
+{
+  "id": "provenance-honesty-001",
+  "type": "provenance-honesty",
+  "description": "Brief on a topic the eval corpus partially covers (AI tooling for researchers). Expect a healthy mix of corpus-grounded, corpus-inspired, and possibly general-knowledge tiers — judge agreement rate ≥70%, no falsely-grounded.",
+  "brief_title": "AI tooling adoption in agencies",
+  "brief_content": "We want to understand what specific failure modes researchers have experienced when adopting AI tooling in client work, the guardrails they would need to see before relying on it, and how adoption appetite differs between agency and in-house teams.",
+  "expects": {
+    "min_hypotheses": 4,
+    "min_agreement_rate": 0.7,
+    "no_false_grounding": true
+  }
+}

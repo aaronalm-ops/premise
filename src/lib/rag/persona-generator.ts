@@ -1,20 +1,31 @@
 // Persona recommendation pipeline with prompt caching + telemetry.
+//
+// D-055: corpus is inspiration, not a fence. Personas declare provenance.
+// Strict-citation filter removed; honest labelling replaces it.
 
 import { MODELS } from "@/lib/llm/anthropic";
 import { tracedMessagesCreate } from "@/lib/telemetry/tracer";
 import { PERSONA_SYSTEM } from "@/lib/prompts/personas";
 import { retrieve } from "@/lib/rag/retrieval";
 import { rerank } from "@/lib/rag/reranker";
+import { rectifyPersonaProvenance } from "@/lib/rag/consistency-checks";
 import type {
+  CorpusProvenance,
   Hypothesis,
   PersonaDraft,
   RetrievedChunk,
 } from "@/lib/rag/types";
 
+const PROVENANCE_VALUES: CorpusProvenance[] = [
+  "corpus-grounded",
+  "corpus-inspired",
+  "general-knowledge",
+];
+
 const PERSONA_TOOL = {
   name: "propose_personas",
   description:
-    "Returns 3-5 ranked target audience personas for the research brief, each grounded in cited corpus chunks and naming what it under-represents.",
+    "Returns 3-5 ranked target audience personas for the research brief. Each declares its provenance tier (corpus-grounded / corpus-inspired / general-knowledge) and names what it under-represents.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -57,15 +68,20 @@ const PERSONA_TOOL = {
             supporting_chunk_ids: {
               type: "array",
               items: { type: "string" },
-              minItems: 1,
               description:
-                "Retrieved chunk IDs that support the existence/relevance of this segment. Must be non-empty.",
+                "Retrieved chunk IDs that support this persona. Required (non-empty) when provenance is 'corpus-grounded' or 'corpus-inspired'; may be empty when provenance is 'general-knowledge'.",
             },
             priority: {
               type: "integer",
               minimum: 1,
               maximum: 5,
               description: "5 = most central to the brief.",
+            },
+            provenance: {
+              type: "string",
+              enum: PROVENANCE_VALUES,
+              description:
+                "D-055: where this persona's archetype came from. 'corpus-grounded' = corpus directly describes this segment; 'corpus-inspired' = corpus describes a behavioural pattern, extended to a brief-relevant target; 'general-knowledge' = standard segmentation from background knowledge, no chunk support. Honest labelling — the UI tags each card with its provenance.",
             },
           },
           required: [
@@ -77,6 +93,7 @@ const PERSONA_TOOL = {
             "under_represents",
             "supporting_chunk_ids",
             "priority",
+            "provenance",
           ],
         },
       },
@@ -111,18 +128,20 @@ export async function generatePersonas(
     ...ctx,
     endpoint: "embed-query",
   });
-  const chunks = await rerank(input.briefContent, candidates, 8, {
-    ...ctx,
-    endpoint: "rerank",
-  });
+  const chunks =
+    candidates.length === 0
+      ? []
+      : await rerank(input.briefContent, candidates, 8, {
+          ...ctx,
+          endpoint: "rerank",
+        });
 
-  if (chunks.length === 0) {
-    return { drafts: [], retrieved_chunks: [] };
-  }
-
-  const corpus = chunks
-    .map((c) => `<chunk id="${c.id}">\n${c.content}\n</chunk>`)
-    .join("\n\n");
+  const corpus =
+    chunks.length > 0
+      ? chunks
+          .map((c) => `<chunk id="${c.id}">\n${c.content}\n</chunk>`)
+          .join("\n\n")
+      : "(no retrieved chunks — generate personas with provenance='general-knowledge' from background knowledge. Do not refuse.)";
 
   const hypotheses =
     input.acceptedHypotheses.length > 0
@@ -132,7 +151,7 @@ export async function generatePersonas(
       : "(none yet — propose personas based on the brief alone)";
 
   const count = Math.min(7, Math.max(2, input.count ?? 4));
-  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypotheses}\n\n# Retrieved chunks (your source of grounding)\n${corpus}\n\nCall propose_personas now with exactly ${count} ranked personas.`;
+  const userPrompt = `# Research brief\n${input.briefContent}\n\n# Accepted hypotheses\n${hypotheses}\n\n# Retrieved chunks (inspiration; cite when grounding, otherwise mark provenance='general-knowledge')\n${corpus}\n\nCall propose_personas now with exactly ${count} ranked personas.`;
 
   const response = await tracedMessagesCreate(
     {
@@ -157,14 +176,40 @@ export async function generatePersonas(
   }
 
   const validIds = new Set(chunks.map((c) => c.id));
-  const drafts = data.personas
-    .map((p) => ({
+  const preRectifyDrafts = data.personas.map((p) => {
+    const provenance: CorpusProvenance = PROVENANCE_VALUES.includes(
+      p.provenance,
+    )
+      ? p.provenance
+      : "general-knowledge";
+    const supporting = (p.supporting_chunk_ids ?? []).filter((id) =>
+      validIds.has(id),
+    );
+    // Same integrity rule as hypotheses: a 'corpus-grounded' / 'corpus-inspired'
+    // self-report with no valid citations gets downgraded to 'general-knowledge'.
+    const corrected: CorpusProvenance =
+      (provenance === "corpus-grounded" || provenance === "corpus-inspired") &&
+      supporting.length === 0
+        ? "general-knowledge"
+        : provenance;
+    return {
       ...p,
-      supporting_chunk_ids: (p.supporting_chunk_ids ?? []).filter((id) =>
-        validIds.has(id),
-      ),
-    }))
-    .filter((p) => p.supporting_chunk_ids.length > 0);
+      supporting_chunk_ids: supporting,
+      provenance: corrected,
+    };
+  });
+
+  // D-055 footnote (2026-05-19): runtime rectifier catches the present-but-
+  // irrelevant citation case the empty-citation downgrade can't see.
+  const drafts =
+    chunks.length > 0
+      ? await rectifyPersonaProvenance({
+          drafts: preRectifyDrafts,
+          retrievedChunks: chunks,
+          projectId: input.projectId,
+          briefId: input.briefId ?? null,
+        })
+      : preRectifyDrafts;
 
   return { drafts, retrieved_chunks: chunks };
 }

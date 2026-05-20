@@ -209,6 +209,7 @@ function PersonaCard({ p, onChange }: { p: Persona; onChange: () => void }) {
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
             Priority {p.priority}/5
           </span>
+          {p.provenance && <PersonaProvenanceChip provenance={p.provenance} />}
           <button
             onClick={() => setExpanded((e) => !e)}
             className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:underline"
@@ -312,5 +313,42 @@ function PersonaCard({ p, onChange }: { p: Persona; onChange: () => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+// D-055: persona provenance chip — same three tiers as hypothesis cards.
+function PersonaProvenanceChip({
+  provenance,
+}: {
+  provenance: "corpus-grounded" | "corpus-inspired" | "general-knowledge";
+}) {
+  const styles: Record<typeof provenance, { className: string; label: string; title: string }> = {
+    "corpus-grounded": {
+      className:
+        "rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100",
+      label: "From corpus",
+      title:
+        "D-055: corpus-grounded. The corpus directly describes this segment. Citations on the card.",
+    },
+    "corpus-inspired": {
+      className:
+        "rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-900 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-100",
+      label: "Inspired by corpus",
+      title:
+        "D-055: corpus-inspired. The persona extends a behavioural pattern from your corpus to this brief's target. Validate the extension.",
+    },
+    "general-knowledge": {
+      className:
+        "rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100",
+      label: "General knowledge",
+      title:
+        "D-055: general-knowledge. Standard segmentation from background knowledge, not from your corpus. Validate against data before pitching.",
+    },
+  };
+  const s = styles[provenance];
+  return (
+    <span className={s.className} title={s.title}>
+      {s.label}
+    </span>
   );
 }

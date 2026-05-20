@@ -85,6 +85,7 @@ export function synthHypothesis(
     revised_after_analysis: false,
     revision_rationale: null,
     scope_inherited_from: "brief",
+    provenance: "corpus-grounded",
     created_at: NOW(),
     updated_at: NOW(),
   };
@@ -110,6 +111,7 @@ export function synthPersona(
     supporting_chunk_ids: [],
     priority: p.priority ?? 3,
     status: "accepted",
+    provenance: "corpus-grounded",
     created_at: NOW(),
     updated_at: NOW(),
   };

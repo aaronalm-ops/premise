@@ -39,10 +39,15 @@ export async function POST(
         scopeClarifications: brief.scope_clarifications,
       });
 
+      // D-055: drafts.length === 0 is now genuinely rare (the model would
+      // have to refuse to produce any hypothesis, which the new prompt
+      // explicitly forbids). When it does happen, it's a real generator
+      // failure, not a missing-corpus issue — so the error message reflects
+      // that rather than blaming the corpus.
       if (drafts.length === 0) {
         throw new HttpError(
           422,
-          "No hypotheses could be generated. The corpus has no chunks relevant to this brief, or all draft hypotheses lacked grounding citations.",
+          "The hypothesis generator produced no drafts. This is usually a transient model error — try again. If it keeps happening, the brief may be too short or too ambiguous for the model to propose hypotheses from.",
           { retrieved_chunks },
         );
       }

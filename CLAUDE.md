@@ -18,7 +18,9 @@ Aaron — Researcher / Analyst transitioning to AI Product Manager. This repo is
 These are load-bearing for the product and have been agreed. Do not relitigate without flagging.
 
 1. **The chatbot proposes, the researcher disposes.** Every output is options/variants, never a single auto-decision. The researcher selects based on expertise.
-2. **Strict abstention on RAG.** Zero fabrication. Every claim cites a source chunk; if the corpus does not support an answer, the bot says so. Enforced via three layers: schema-forced tool_use → verifier pass → UI gate.
+2. **Calibrated provenance.** Two pieces (D-055).
+   - **Chat pane (left)** — strict abstention to the corpus. Q&A against the corpus must cite chunks; if the corpus doesn't cover the question, the bot says so. The "Premise refuses to fabricate" floor lives here, untouched.
+   - **Right-pane artefacts** — corpus is *inspiration, not a fence*. Every right-pane claim self-reports a `provenance` tier so the researcher always knows the source. Hypotheses + personas: corpus-grounded / corpus-inspired / general-knowledge. Analysis verdicts: data-grounded / data-extrapolated / general-knowledge. Recommendations + story angles inherit grounding via the evidence chain (must cite hypothesis/pattern IDs) and don't carry their own provenance — they're creative synthesis from already-vetted inputs.
 3. **Haiku-default model routing.** Default to `claude-haiku-4-5-20251001`. Escalate to `claude-sonnet-4-6` only for synthesis-heavy steps (hypothesis generation, analysis writeup, story angles, the final questionnaire pass). **Never default to Opus.**
 4. **Prompt caching on every repeated call.** System prompts, persona libraries, document context — anything that repeats. This is the #1 cost lever.
 5. **Confidentiality enforced at the SQL boundary**, not in application code. See [supabase/migrations/0001_initial_schema.sql](supabase/migrations/0001_initial_schema.sql) `match_chunks` function.
@@ -40,19 +42,34 @@ For every meaningful decision, lead with a **story or analogy** drawn from the r
 | LLM | Anthropic Claude (Haiku/Sonnet routing) |
 | Embeddings | Voyage AI `voyage-3` (1024-dim) |
 | Hosting | Vercel free tier |
+| Analytics | Vercel Web Analytics (2026-05-19) — `@vercel/analytics/next` `<Analytics />` mounted in [src/app/layout.tsx](src/app/layout.tsx). Free-tier, zero-config; captures page views + visitors on the deployed site. |
 | Scripts | `tsx` with `--env-file=.env.local` |
 
 ## Where things live
 
-- [docs/DECISIONS.md](docs/DECISIONS.md) — **canonical decision log** (D-001 through D-017). Source of truth for *why*. Read before challenging any choice.
+- [docs/DECISIONS.md](docs/DECISIONS.md) — **canonical decision log** (D-001 through D-055). Source of truth for *why*. Read before challenging any choice.
 - [docs/CASE_STUDY.md](docs/CASE_STUDY.md) — running portfolio narrative in Aaron's voice.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phased plan with hard exit criteria per phase.
 - [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) — dense self-contained brief for handing off to another chat.
 - [docs/PORTFOLIO.md](docs/PORTFOLIO.md) — portfolio-ready copy in multiple lengths.
-- [src/lib/rag/](src/lib/rag/) — chunking, embeddings, retrieval, reranker, generation, verification, pipeline.
-- [src/lib/prompts/](src/lib/prompts/) — system prompts. Every word here is load-bearing for strict abstention.
-- [supabase/migrations/](supabase/migrations/) — schema + RPC functions.
-- [scripts/](scripts/) — CLIs (`create-project`, `ingest`, `diagnose`).
+- [docs/EVALUATION_LOG.md](docs/EVALUATION_LOG.md) — eval-harness baselines, audit logs, dogfood findings.
+- [docs/TASKFORCE_CRITIQUE.md](docs/TASKFORCE_CRITIQUE.md) — Audit #2 taskforce critique log (D-038 through D-043).
+- [docs/PUBLIC_CORPUS_TASKFORCE.md](docs/PUBLIC_CORPUS_TASKFORCE.md), [docs/PUBLIC_CORPUS_LICENSING.md](docs/PUBLIC_CORPUS_LICENSING.md), [docs/PUBLIC_CORPUS_SHOPPING_LIST.md](docs/PUBLIC_CORPUS_SHOPPING_LIST.md) — public-corpus curation discipline.
+- [docs/NEXT_DUCKDB.md](docs/NEXT_DUCKDB.md) — planning doc for the deferred DuckDB-as-tool capability (next-session scaffold).
+- [src/lib/rag/](src/lib/rag/) — chunking, embeddings, retrieval, reranker, generation, verification, pipeline. Key modules:
+  - `hypothesis-generator.ts`, `persona-generator.ts`, `question-generator.ts`, `analysis-generator.ts`, `recommendation-generator.ts`, `story-generator.ts` — the six generators.
+  - `consistency-checks.ts` (D-050, D-055-footnote) — independent Sonnet verifiers: `rectifyVerdicts`, `rectifyRecommendations`, `rectifyHypothesisProvenance`, `rectifyPersonaProvenance`.
+  - `scope-detector.ts`, `corpus-skew.ts` (D-049) — brief-scope detection + project-corpus skew for the clarifier flow.
+- [src/lib/prompts/](src/lib/prompts/) — system prompts. Every word here is load-bearing for strict abstention (chat) and provenance discipline (right-pane artefacts).
+- [src/components/canvas/](src/components/canvas/) — UI surfaces:
+  - `canvas-shell.tsx`, `projects-home.tsx` (D-054) — root layout + two-state home page.
+  - `chat-pane.tsx`, `artefacts-pane.tsx` — left + right panes.
+  - `brief-artefact.tsx`, `scope-clarifier.tsx` (D-049), `hypotheses-artefact.tsx`, `personas-artefact.tsx`, `questions-artefact.tsx`, `analysis-artefact.tsx`, `recommendations-artefact.tsx`, `stories-artefact.tsx` — per-stage artefact cards.
+  - `new-project-modal.tsx` (D-054, redesigned) — 3-option corpus selector.
+  - `grounding-disclosure.tsx` (D-038), `cost-badge.tsx` (D-023), `account-menu.tsx`, `premise-mark.tsx`, `project-switcher.tsx`, `public-libraries-section.tsx` (D-047), `documents-artefact.tsx`.
+- [supabase/migrations/](supabase/migrations/) — schema + RPC functions. Latest: 0016 (brief scope), 0017 (recommendation action-class), 0018 (provenance columns).
+- [scripts/](scripts/) — CLIs: `create-project`, `ingest`, `diagnose`, `seed-public-library`, `seed-public-corpus`, `audit-public-corpus`, `audit-public-corpus-regions` (D-049 follow-up).
+- [evals/](evals/) — eval harness. 14 probe types as of D-055. Runners: golden-qa, abstention, hallucination, hypothesis-quality, persona-quality, confidentiality, citation-accuracy (D-042), hypothesis-judge, persona-judge, recommendation-judge, story-angle-judge, variant-judge, prompt-injection (all D-046), scope-discipline (D-049), provenance-honesty (D-055).
 
 ## Conventions
 
@@ -67,16 +84,29 @@ For every meaningful decision, lead with a **story or analogy** drawn from the r
 
 ```bash
 npm install
-cp .env.local.example .env.local           # then fill in 5 keys
-npm run diagnose                            # verifies env + pings each service
-npm run dev                                 # http://localhost:3000
+cp .env.local.example .env.local                # then fill in 5 keys
+npm run diagnose                                # verifies env + pings each service
+npm run dev                                     # http://localhost:3000
+npm run typecheck                               # tsc --noEmit
 npm run create-project -- "Name" client-confidential "Description"
-npm run ingest -- <projectId> ./file.txt    # .txt or .md
+npm run ingest -- <projectId> ./file.txt        # .txt, .md, .pdf, .docx, or URL
 curl -s -X POST localhost:3000/api/ask -H 'Content-Type: application/json' \
   -d '{"projectId":"<id>","question":"..."}' | jq
+
+# Public-corpus
+npm run seed-public-corpus                      # bulk-ingest from scripts/public-library-manifest.ts
+npm run audit-public-corpus                     # SAFE vs BLOCKED partition (commercial-safety)
+npm run audit-public-corpus-regions             # geography distribution (D-049 follow-up)
+
+# Eval harness
+npm run eval                                    # full pass (14 probe types)
+npm run eval -- --type=scope-discipline         # one type (D-049)
+npm run eval -- --type=provenance-honesty       # D-055 — labelling honesty
+npm run eval:setup                              # provision projects + ingest fixtures
+npm run eval:reset                              # discard config to start fresh
 ```
 
-## Current build state (last updated 2026-05-18)
+## Current build state (last updated 2026-05-19)
 
 - Phase 0 — scaffolding **shipped**.
 - Phase 1 — strict-mode RAG core **shipped**: schema, ingestion CLI, retrieval, rerank, strict-output generation, verifier, `/api/ask`.
@@ -121,7 +151,45 @@ curl -s -X POST localhost:3000/api/ask -H 'Content-Type: application/json' \
 - **D-052 — Story-angle audience precision** (2026-05-18): the "Travel Avidity Myth" angle bundled insights leads + research agencies + tourism boards in a single `target_audience` field — inheriting the commercial viability of its most reluctant buyer (tourism boards). Two prompt rules: `target_audience` names ONE buyer + ONE job-to-be-done (not a list); debunk/negation ledes must target audiences whose budget is *unlocked* by the correction (methodologists, risk committees, regulators), not growth-stage commercial buyers. `story-gen` v4-2026-05-18.
 - **D-053 — Honest CSV framing in the analyser** (2026-05-18): the analyser repeatedly said "only ~528 rows visible" of a 10k-row CSV — that's mechanical (80k char budget vs 1.5MB CSV ≈ 5.3%). Premise was honestly reading the truncated extract but the framing wasn't there. Added a CSV-framing section to the analysis prompt + inline user-prompt notice when `source_type=csv` is in scope + amber UI callout on the analysis artefact. Counts/percentages cited from the extract are illustrative, not population estimates; significance claims must be `inconclusive` with the missing-test caveat named.
 - **D-054 — Home-page redesign + 3-option reference-materials flow** (2026-05-18): elite taskforce convened (UX designer, insights workflow researcher, activation PM, conversational AI designer, research director). Two-state home: empty (splash + CTA) vs populated (project grid + "+ New Project"). New `ProjectsHome` component shown when no project is selected. New-project modal redesigned with three fields (name, brief textarea, 3-option corpus selector: public-only / own-only / own-plus-public) — chains project-create → patch include_public_libraries → optional brief-create. Logo in header is now a "back to projects" button. Confidentiality dropped from the modal (defaults to client-confidential) — reduces activation friction.
-- **Next**: (a) Aaron applies migrations 0016 + 0017 to Supabase, re-runs the same ASEAN brief through the post-fix pipeline, fills in the before/after section in [docs/EVALUATION_LOG.md](docs/EVALUATION_LOG.md); (b) public-library global-curation audit — verify the 66-doc public library is regionally balanced enough to be assumed global-by-curation, or rebalance; (c) DuckDB-as-tool: own decision entry, capability extension for tabular data; (d) deferred items still standing: D-7 streaming, R-5 skip logic, E-5 model-regression.
+- **D-055 — Corpus is inspiration, not a fence** (2026-05-18, taskforce-driven): The dogfood caught D-049 over-applying the strict-abstention floor. A region-neutral brief on a public-only project produced zero hypotheses — the corpus had no on-topic chunks and the chassis refused to help. Aaron's reframe: **strict abstention is for the chat pane only; the right pane uses provenance**. Five voices (Marcus / Dr. Riya / James / Sam / Devi) converged: keep the floor where claims are load-bearing (Q&A), use provenance labels where artefacts are proposals. Hypotheses + personas now carry `corpus-grounded` / `corpus-inspired` / `general-knowledge`; analysis verdicts carry `data-grounded` / `data-extrapolated` / `general-knowledge`. Recommendations + story angles unchanged — their grounding is the evidence-chain (must cite hypothesis IDs). Strict-citation filter removed from hypothesis-gen + persona-gen. New three-tier chips on every right-pane card; analysis verdicts marked `general-knowledge` render a prominent banner. Migration 0018 adds provenance columns + redefines RPCs. CLAUDE.md non-negotiable #2 rewritten. Prompt versions: hypothesis-gen v4, persona-gen v4, analysis-gen v3.
+- **Provenance-honesty eval probe** (2026-05-18, D-055-g): new probe type wired through `evals/lib/types.ts` + `evals/cli.ts` + `evals/runners/provenance-honesty.ts`. Two fixtures (corpus-partial-coverage on AI-tooling, corpus-silent on B2B-SaaS-pricing). Independent Sonnet auditor returns `agrees` / `off-by-one` / `wrong` / `falsely-grounded` per draft. Threshold: `min_agreement_rate: 0.7`, `no_false_grounding: true`. Same pattern as D-042 citation-accuracy.
+- **D-055 footnote 1 — Runtime provenance rectifier** (2026-05-19): the first run of the `provenance-honesty` probe caught the model citing methodology paragraphs as if they grounded substantive findings claims — three falsely-grounded labels on probe 001 and one on probe 002. The chassis's empty-citation downgrade couldn't catch present-but-irrelevant citations. New `rectifyHypothesisProvenance` + `rectifyPersonaProvenance` in [src/lib/rag/consistency-checks.ts](src/lib/rag/consistency-checks.ts): one batched Sonnet pass per generation classifies each cited draft as `supports` / `topic-match-only` / `no-citations`; topic-match-only drafts get auto-downgraded to `general-knowledge` with citations stripped. Prompts gained explicit anti-example (methodology-paragraph-is-not-support). Prompts bumped to `v4.1-2026-05-19`. New endpoint `provenance-audit` at `v1-2026-05-19`. **Pattern named**: hard-schema-generate + soft-second-pass-verify is now the load-bearing pattern of Premise's right-pane integrity (D-042, D-050, D-055 all use it).
+- **Vercel Web Analytics** (2026-05-19): installed `@vercel/analytics`; `<Analytics />` component mounted in [src/app/layout.tsx](src/app/layout.tsx) inside `<body>` per the App Router pattern. Vercel Agent generated a parallel PR; local working tree updated directly so the code is consistent regardless of merge order. Free-tier; captures page views + visitor counts on the live deployment.
+- **Next**: (a) Aaron applies migrations 0016 + 0017 + 0018 to Supabase, restarts the dev server, re-runs the same ASEAN brief through the post-fix pipeline, fills in the before/after section in [docs/EVALUATION_LOG.md](docs/EVALUATION_LOG.md); (b) re-run `npm run eval -- --type=provenance-honesty` to verify the rectifier closes the falsely-grounded failures; (c) public-library global-curation audit via `npm run audit-public-corpus-regions` — verify the 66-doc public library is regionally balanced enough to be assumed global-by-curation, or rebalance; (d) DuckDB-as-tool: own decision entry, capability extension for tabular data (planning doc at [docs/NEXT_DUCKDB.md](docs/NEXT_DUCKDB.md)); (e) deferred items still standing: D-7 streaming, R-5 skip logic, E-5 model-regression — original rationale holds.
+
+## Migrations to apply (in order)
+
+When Aaron's Supabase project lags behind the local migrations folder, apply these in numerical order via Supabase Dashboard → SQL Editor → New Query → paste → Run. Each is idempotent and safe to re-run.
+
+| File | Decision | What it does |
+|---|---|---|
+| 0001–0015 | D-001 through D-047 | Foundational schema, RLS, telemetry, auth, story-angles, recommendations, public-corpus metadata, commercial-safety, public-library opt-in. |
+| `0016_brief_scope_discipline.sql` | D-049 | Adds `scope_dimensions`, `scope_corpus_skew`, `scope_clarifications`, `scope_clarifier_status` columns to `briefs`. Adds `scope_inherited_from` column to `hypotheses`. Redefines `replace_proposed_hypotheses`. |
+| `0017_recommendation_action_class.sql` | D-051 | Adds `requires_behavioral_validation boolean` column to `recommendations`. Redefines `replace_proposed_recommendations`. |
+| `0018_provenance.sql` | D-055 | Adds `provenance` column to `hypotheses` + `personas`. Redefines both `replace_proposed_*` RPCs. Analysis verdict provenance lives in the existing `hypothesis_verdicts` jsonb — no DB column needed. |
+
+## Prompt versions (load-bearing for telemetry + regression diff)
+
+The `prompt_version` field on every recorded API call lets us diff behaviour across prompt revisions. Current versions in [src/lib/llm/prompt-versions.ts](src/lib/llm/prompt-versions.ts):
+
+| Endpoint | Version | Last touched |
+|---|---|---|
+| rag-draft | v3-2026-05-01 | D-010 / strict-RAG |
+| rag-verify | v2-2026-05-01 | D-035 batched verifier |
+| rerank | v2-2026-05-01 | D-035 tool-use rerank |
+| hypothesis-gen | v4.1-2026-05-19 | D-055 footnote: anti-example + rectifier |
+| persona-gen | v4.1-2026-05-19 | D-055 footnote: anti-example + rectifier |
+| question-gen | v4-2026-05-14 | D-040 is_recommended |
+| analysis-gen | v3-2026-05-18 | D-055 verdict provenance |
+| recommendation-gen | v2-2026-05-18 | D-051 action-class constraint |
+| story-gen | v4-2026-05-18 | D-052 audience precision |
+| story-outline | v1-2026-05-01 | initial |
+| scope-detect | v1-2026-05-18 | D-049 Haiku |
+| corpus-skew | v1-2026-05-18 | D-049 Haiku |
+| verdict-direction-check | v1-2026-05-18 | D-050 |
+| action-consistency-check | v1-2026-05-18 | D-050 |
+| provenance-audit | v1-2026-05-19 | D-055 footnote |
+| embed-doc / embed-query | voyage-3 | — |
 
 ## What NOT to do
 

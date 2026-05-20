@@ -14,7 +14,8 @@ export type ProbeType =
   | "story-angle-judge"
   | "variant-judge"
   | "prompt-injection"
-  | "scope-discipline";
+  | "scope-discipline"
+  | "provenance-honesty";
 
 export type GoldenQaProbe = {
   id: string;
@@ -236,6 +237,34 @@ export type ScopeDisciplineProbe = {
   };
 };
 
+// D-055: per-hypothesis provenance-label honesty. For each generated draft,
+// an independent Sonnet judge inspects the statement + cited chunks (if any)
+// and answers: was the self-reported `provenance` tier the right one? The
+// probe passes when the agreement rate clears the threshold AND no draft is
+// flagged as falsely-grounded (claiming corpus-grounded with weak/no
+// citation support).
+export type ProvenanceHonestyProbe = {
+  id: string;
+  type: "provenance-honesty";
+  description: string;
+  brief_title: string;
+  brief_content: string;
+  expects: {
+    min_hypotheses: number;
+    // Fraction (0.0–1.0) of hypotheses where the judge agrees with the
+    // self-reported provenance tier. 0.7 is the default baseline — labelling
+    // is taste-driven enough that 100% agreement isn't realistic; we want to
+    // catch drift, not enforce one judge's calibration.
+    min_agreement_rate: number;
+    // Hard constraint: no draft may falsely claim corpus-grounded /
+    // corpus-inspired when the judge sees no chunk support. This catches
+    // the bad failure mode (silent fabrication wrapped in a misleading
+    // label) without requiring full agreement on the legitimate-vs-illegitimate
+    // distinction between grounded and inspired.
+    no_false_grounding: boolean;
+  };
+};
+
 export type AnyProbe =
   | GoldenQaProbe
   | AbstentionProbe
@@ -250,7 +279,8 @@ export type AnyProbe =
   | StoryAngleJudgeProbe
   | VariantJudgeProbe
   | PromptInjectionProbe
-  | ScopeDisciplineProbe;
+  | ScopeDisciplineProbe
+  | ProvenanceHonestyProbe;
 
 export type ProbeResult = {
   probe_id: string;

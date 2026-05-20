@@ -10,12 +10,19 @@ import { rectifyVerdicts } from "@/lib/rag/consistency-checks";
 import type {
   AnalysisData,
   AnalysisGenerationResult,
+  DataProvenance,
   EmergentPattern,
   Hypothesis,
   HypothesisVerdict,
   Persona,
   QuestionWithVariants,
 } from "@/lib/rag/types";
+
+const DATA_PROVENANCE_VALUES: DataProvenance[] = [
+  "data-grounded",
+  "data-extrapolated",
+  "general-knowledge",
+];
 
 const ANALYSIS_TOOL = {
   name: "analyse_data",
@@ -59,6 +66,12 @@ const ANALYSIS_TOOL = {
               description:
                 "Short bullet phrases. What limitations the researcher should hold in mind for THIS verdict.",
             },
+            provenance: {
+              type: "string",
+              enum: DATA_PROVENANCE_VALUES,
+              description:
+                "D-055: where this verdict's claim came from. 'data-grounded' = supported by specific signal in the uploaded data (counts, percentages, quotes, segment splits cited in supporting_evidence). 'data-extrapolated' = plausible given the visible data but extends beyond what's strictly observable — use for verdicts on CSV samples where the full dataset would be required for a strict claim (the D-053 case). 'general-knowledge' = standard industry pattern with no specific support in the uploaded data. The UI renders 'general-knowledge' verdicts with a prominent banner — pitching this to a client requires the researcher to have validated it independently.",
+            },
           },
           required: [
             "hypothesis_id",
@@ -67,6 +80,7 @@ const ANALYSIS_TOOL = {
             "summary",
             "supporting_evidence",
             "caveats",
+            "provenance",
           ],
         },
       },
@@ -227,10 +241,19 @@ export async function generateAnalysis(
   );
 
   // Defensive filtering: only keep verdicts on hypotheses that were actually
-  // passed in. Drop any hallucinated ID.
-  const rawVerdicts = (data.hypothesis_verdicts ?? []).filter((v) =>
-    validHypothesisIds.has(v.hypothesis_id),
-  );
+  // passed in. Drop any hallucinated ID. Also normalise the provenance field
+  // (D-055): if the model emitted a non-enum value, fall back to
+  // 'general-knowledge' so we don't silently claim data support.
+  const rawVerdicts = (data.hypothesis_verdicts ?? [])
+    .filter((v) => validHypothesisIds.has(v.hypothesis_id))
+    .map((v) => ({
+      ...v,
+      provenance: DATA_PROVENANCE_VALUES.includes(
+        v.provenance as DataProvenance,
+      )
+        ? (v.provenance as DataProvenance)
+        : ("general-knowledge" as DataProvenance),
+    }));
 
   // D-050: verdict-direction-check. Independent Sonnet pass cross-checks
   // each verdict's prose direction against its label. Mismatches are
