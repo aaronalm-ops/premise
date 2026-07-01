@@ -1,0 +1,21 @@
+name: Supabase keep-alive
+
+on:
+  schedule:
+    # Every 3 days at 09:00 UTC — well inside Supabase's 7-day inactivity pause window.
+    - cron: '0 9 */3 * *'
+  workflow_dispatch: # allow manual trigger from the Actions tab
+
+jobs:
+  ping:
+    name: Ping Supabase
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.SUPABASE_URL }}/health")
+          echo "Supabase health status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Unexpected status $STATUS — check Supabase dashboard."
+            exit 1
+          fi
